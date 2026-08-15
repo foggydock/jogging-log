@@ -3,6 +3,7 @@
   --text:#e6edf3; --dim:#8b98a5; --accent:#5ee36a; --accent2:#37c9ff;
   --warn:#ff7b72; --gold:#ffd166;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -34,7 +35,7 @@ textarea{resize:vertical}
 .login-msg{color:var(--warn); font-size:13px; min-height:20px; margin:10px 0 0}
 
 /* ---------- レイアウト ---------- */
-.app{max-width:640px; margin:0 auto; padding:0 14px calc(76px + var(--safe-b))}
+.app{max-width:640px; margin:0 auto; padding:calc(10px + var(--safe-t)) 14px calc(76px + var(--safe-b))}
 .tab-panel{padding-top:14px}
 .page-head{
   display:flex; align-items:center; justify-content:space-between;
