@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>ジョギングログ</title>
+<link rel="manifest" href="manifest.json?v=1">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+
+<!-- ========== ログイン ========== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-box">
+    <div class="login-icon">🏃</div>
+    <h1>ジョギングログ</h1>
+    <p class="login-sub">走った記録と、走る理由を貯める場所</p>
+    <input type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="username">
+    <input type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password">
+    <button id="loginBtn" class="btn-primary">ログイン</button>
+    <p id="loginMsg" class="login-msg"></p>
+  </div>
+</div>
+
+<!-- ========== 本体 ========== -->
+<div id="app" class="app hidden">
+
+  <!-- ---------- きょう ---------- -->
+  <section id="tab-today" class="tab-panel">
+    <header class="page-head">
+      <h2 id="todayDate">きょう</h2>
+      <button id="quickAddBtn" class="btn-primary btn-sm">＋ 走った記録</button>
+    </header>
+
+    <div class="card card-cheer">
+      <div class="cheer-label">いまの積み上げ</div>
+      <div id="cheerText" class="cheer-text">読み込み中…</div>
+      <div id="cheerStats" class="cheer-stats"></div>
+    </div>
+
+    <div class="card card-note" id="todayNoteCard">
+      <div class="note-head">
+        <span class="note-label">💡 今日のひとこと</span>
+        <button id="nextNoteBtn" class="btn-ghost btn-sm">別のを見る</button>
+      </div>
+      <div id="todayNoteBody" class="note-body">
+        <p class="empty">メモがまだありません。<br>「メモ」タブで、走る気になる話を貯めていきましょう。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">直近の走り</div>
+      <div id="recentRuns" class="run-list"></div>
+    </div>
+  </section>
+
+  <!-- ---------- 記録 ---------- -->
+  <section id="tab-runs" class="tab-panel hidden">
+    <header class="page-head">
+      <h2>記録</h2>
+      <button id="addRunBtn" class="btn-primary btn-sm">＋ 追加</button>
+    </header>
+
+    <div class="stat-grid" id="statGrid"></div>
+
+    <div class="card card-odd hidden" id="oddNotice"></div>
+
+    <div class="card">
+      <div class="card-title">月別の距離</div>
+      <div class="chart-scroll"><div id="monthChart" class="chart"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        すべての記録 <span id="runCount" class="count"></span>
+      </div>
+      <div class="filter-row">
+        <select id="yearFilter"></select>
+      </div>
+      <div id="allRuns" class="run-list"></div>
+      <button id="moreRunsBtn" class="btn-ghost hidden">もっと見る</button>
+    </div>
+  </section>
+
+  <!-- ---------- メモ ---------- -->
+  <section id="tab-notes" class="tab-panel hidden">
+    <header class="page-head">
+      <h2>メモ</h2>
+      <button id="addNoteBtn" class="btn-primary btn-sm">＋ 追加</button>
+    </header>
+
+    <div class="card">
+      <p class="hint">ジョギングについて調べたこと・言われて響いた言葉・続けるコツを貯めます。<br>
+        貯めたメモは「きょう」タブで、しばらく見ていないものから順に出てきます。</p>
+    </div>
+
+    <div id="tagChips" class="tag-chips"></div>
+    <div id="noteList" class="note-list"></div>
+  </section>
+
+  <!-- ---------- 設定 ---------- -->
+  <section id="tab-settings" class="tab-panel hidden">
+    <header class="page-head"><h2>設定</h2></header>
+
+    <div class="card">
+      <div class="card-title">Gemini APIキー</div>
+      <p class="hint">ワークアウトのスクショを読み取って自動入力するのに使います。
+        キーはこの端末の中だけに保存され、どこにも送られません（Google の API を除く）。</p>
+      <input type="password" id="geminiKey" placeholder="AIza...">
+      <div class="btn-row">
+        <button id="saveKeyBtn" class="btn-primary btn-sm">保存</button>
+        <span id="keyStatus" class="status"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">バックアップ</div>
+      <p class="hint">記録とメモをまとめて JSON で書き出します。定期的に取っておくと安心です。</p>
+      <div class="btn-row">
+        <button id="exportBtn" class="btn-ghost btn-sm">書き出す</button>
+        <button id="importBtn" class="btn-ghost btn-sm">取り込む</button>
+        <input type="file" id="importFile" accept=".json" hidden>
+      </div>
+      <p id="backupStatus" class="status"></p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">アカウント</div>
+      <p class="hint" id="acctEmail"></p>
+      <button id="logoutBtn" class="btn-ghost btn-sm">ログアウト</button>
+    </div>
+  </section>
+
+  <!-- ---------- タブバー ---------- -->
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="today"><span>🏠</span>きょう</button>
+    <button class="tab-btn" data-tab="runs"><span>📈</span>記録</button>
+    <button class="tab-btn" data-tab="notes"><span>💡</span>メモ</button>
+    <button class="tab-btn" data-tab="settings"><span>⚙️</span>設定</button>
+  </nav>
+</div>
+
+<!-- ========== 記録の入力モーダル ========== -->
+<div id="runModal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="runModalTitle">走った記録</h3>
+      <button class="modal-close" data-close="runModal">✕</button>
+    </div>
+
+    <div class="shot-zone">
+      <label class="shot-btn">
+        📷 スクショから読み取る
+        <input type="file" id="shotFile" accept="image/*" hidden>
+      </label>
+      <p id="shotStatus" class="status"></p>
+    </div>
+
+    <div class="form-grid">
+      <label>日付<input type="date" id="fRanOn"></label>
+      <label>タイトル<input type="text" id="fTitle" placeholder="朝ジョギング"></label>
+      <label>時間<input type="text" id="fDuration" placeholder="0:29:30" inputmode="numeric"></label>
+      <label>距離(km)<input type="number" id="fDistance" step="0.01" inputmode="decimal"></label>
+      <label>平均心拍<input type="number" id="fHr" inputmode="numeric"></label>
+      <label>ケイデンス<input type="number" id="fCadence" inputmode="numeric"></label>
+      <label>消費kcal<input type="number" id="fKcal" inputmode="numeric"></label>
+      <label>上昇高度(m)<input type="number" id="fElev" inputmode="numeric"></label>
+    </div>
+
+    <div class="pace-preview" id="pacePreview"></div>
+
+    <label class="full">体感
+      <div class="feel-row" id="feelRow">
+        <button type="button" data-feel="1">😵 きつい</button>
+        <button type="button" data-feel="2">😓</button>
+        <button type="button" data-feel="3">🙂 普通</button>
+        <button type="button" data-feel="4">😄</button>
+        <button type="button" data-feel="5">🔥 絶好調</button>
+      </div>
+    </label>
+
+    <label class="full">ひとこと<textarea id="fNote" rows="2" placeholder="今日は涼しくて走りやすかった"></textarea></label>
+
+    <div class="modal-foot">
+      <button id="deleteRunBtn" class="btn-danger btn-sm hidden">削除</button>
+      <div class="spacer"></div>
+      <button class="btn-ghost btn-sm" data-close="runModal">やめる</button>
+      <button id="saveRunBtn" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== メモの入力モーダル ========== -->
+<div id="noteModal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="noteModalTitle">メモ</h3>
+      <button class="modal-close" data-close="noteModal">✕</button>
+    </div>
+
+    <label class="full">見出し<input type="text" id="nTitle" placeholder="ゆっくり走る方が伸びる"></label>
+    <label class="full">本文<textarea id="nContent" rows="6" placeholder="調べたこと、響いた言葉、続けるコツ…"></textarea></label>
+    <label class="full">出典<input type="text" id="nSource" placeholder="本のタイトル / URL / 誰かの言葉"></label>
+    <label class="full">タグ<input type="text" id="nTags" placeholder="フォーム, メンタル（カンマ区切り）"></label>
+    <label class="checkbox"><input type="checkbox" id="nFav"> お気に入り（よく出てくるようにする）</label>
+
+    <div class="modal-foot">
+      <button id="deleteNoteBtn" class="btn-danger btn-sm hidden">削除</button>
+      <div class="spacer"></div>
+      <button class="btn-ghost btn-sm" data-close="noteModal">やめる</button>
+      <button id="saveNoteBtn" class="btn-primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/config.js?v=1"></script>
+<script src="js/app.js?v=1"></script>
+</body>
+</html>

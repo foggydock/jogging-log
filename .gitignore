@@ -1,0 +1,8 @@
+# 実データはコミットしない（public リポジトリのため）
+jogging_import.json
+notion_export/
+*.csv
+*.zip
+
+.DS_Store
+.claude/

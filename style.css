@@ -1,0 +1,209 @@
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3341;
+  --text:#e6edf3; --dim:#8b98a5; --accent:#5ee36a; --accent2:#37c9ff;
+  --warn:#ff7b72; --gold:#ffd166;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+  font-size:15px; line-height:1.6; -webkit-text-size-adjust:100%;
+}
+.hidden{display:none !important}
+button{font-family:inherit; cursor:pointer}
+input,textarea,select{
+  font-family:inherit; font-size:16px; width:100%;
+  background:var(--panel2); color:var(--text);
+  border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent2)}
+textarea{resize:vertical}
+
+/* ---------- ログイン ---------- */
+.login-screen{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  padding:24px; background:var(--bg); z-index:50;
+}
+.login-box{width:100%; max-width:340px; text-align:center}
+.login-icon{font-size:56px; line-height:1}
+.login-box h1{font-size:22px; margin:8px 0 4px}
+.login-sub{color:var(--dim); font-size:13px; margin:0 0 24px}
+.login-box input{margin-bottom:10px}
+.login-msg{color:var(--warn); font-size:13px; min-height:20px; margin:10px 0 0}
+
+/* ---------- レイアウト ---------- */
+.app{max-width:640px; margin:0 auto; padding:0 14px calc(76px + var(--safe-b))}
+.tab-panel{padding-top:14px}
+.page-head{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:10px; margin:6px 0 14px;
+}
+.page-head h2{font-size:20px; margin:0}
+
+/* ---------- カード ---------- */
+.card{
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:14px; padding:14px; margin-bottom:12px;
+}
+.card-title{font-weight:600; font-size:14px; margin-bottom:10px; display:flex; align-items:center; gap:8px}
+.count{color:var(--dim); font-weight:400; font-size:12px}
+.hint{color:var(--dim); font-size:12.5px; margin:0 0 10px}
+.status{color:var(--dim); font-size:12.5px; min-height:18px; margin:6px 0 0; display:block}
+.empty{color:var(--dim); font-size:13px; text-align:center; padding:16px 0; margin:0}
+
+.card-cheer{
+  background:linear-gradient(150deg,#16301f,#161b22 65%);
+  border-color:#2c5c3a;
+}
+.cheer-label{font-size:11px; color:var(--accent); letter-spacing:.08em; margin-bottom:6px}
+.cheer-text{font-size:16px; font-weight:600; line-height:1.55; white-space:pre-wrap}
+.cheer-stats{display:flex; flex-wrap:wrap; gap:14px; margin-top:12px}
+.cheer-stats div{font-size:12px; color:var(--dim)}
+.cheer-stats b{display:block; font-size:18px; color:var(--text); font-weight:700}
+
+.card-note{background:linear-gradient(150deg,#2a2716,#161b22 65%); border-color:#5c4f2c}
+.card-odd{border-color:#6b3b2e; background:linear-gradient(150deg,#2a1a16,#161b22 65%)}
+.note-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+.note-label{font-size:11px; color:var(--gold); letter-spacing:.08em}
+.note-body h4{margin:0 0 6px; font-size:15px}
+.note-body p{margin:0; white-space:pre-wrap; font-size:14px}
+.note-body .src{color:var(--dim); font-size:12px; margin-top:8px}
+
+/* ---------- ボタン ---------- */
+.btn-primary,.btn-ghost,.btn-danger{
+  border-radius:10px; padding:11px 16px; font-size:14.5px; font-weight:600;
+  border:1px solid transparent; white-space:nowrap;
+}
+.btn-primary{background:var(--accent); color:#07230c; width:100%}
+.btn-ghost{background:transparent; color:var(--text); border-color:var(--line)}
+.btn-danger{background:transparent; color:var(--warn); border-color:#5c2a28}
+.btn-sm{padding:7px 12px; font-size:13px; width:auto}
+.btn-row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+
+/* ---------- 統計 ---------- */
+.stat-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:12px}
+.stat{
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:14px; padding:12px; min-width:0;
+}
+.stat .label{font-size:11.5px; color:var(--dim)}
+.stat .value{font-size:22px; font-weight:700; line-height:1.25}
+.stat .unit{font-size:12px; color:var(--dim); font-weight:400; margin-left:2px}
+.stat .sub{font-size:11.5px; color:var(--dim)}
+
+/* ---------- グラフ ---------- */
+.chart-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+.chart{display:flex; align-items:flex-end; gap:5px; height:140px; min-width:100%; padding-top:18px}
+.bar{
+  flex:0 0 22px; display:flex; flex-direction:column; justify-content:flex-end;
+  align-items:center; height:100%; position:relative;
+}
+.bar i{
+  display:block; width:100%; background:linear-gradient(180deg,var(--accent2),#2a7ea8);
+  border-radius:4px 4px 0 0; min-height:2px;
+}
+.bar em{font-style:normal; font-size:9.5px; color:var(--dim); margin-top:5px; white-space:nowrap}
+.bar span{
+  position:absolute; top:-16px; font-size:9.5px; color:var(--dim); white-space:nowrap;
+}
+
+/* ---------- 記録リスト ---------- */
+.filter-row{margin-bottom:10px}
+.run-list{display:flex; flex-direction:column}
+.run-row{
+  display:flex; align-items:center; gap:10px; padding:10px 2px;
+  border-bottom:1px solid var(--line); cursor:pointer;
+}
+.run-row:last-child{border-bottom:none}
+.run-date{flex:0 0 74px; font-size:12.5px; color:var(--dim)}
+.run-main{flex:1; min-width:0}
+.run-dist{font-size:15px; font-weight:700}
+.run-dist small{font-size:11px; color:var(--dim); font-weight:400; margin-left:2px}
+.run-meta{font-size:11.5px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.run-pace{flex:0 0 auto; font-size:13px; color:var(--accent2); font-variant-numeric:tabular-nums}
+
+/* ---------- メモ一覧 ---------- */
+.tag-chips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px}
+.chip{
+  background:var(--panel2); border:1px solid var(--line); color:var(--dim);
+  border-radius:999px; padding:5px 12px; font-size:12.5px;
+}
+.chip.on{background:var(--accent); color:#07230c; border-color:var(--accent); font-weight:600}
+.note-list{display:flex; flex-direction:column; gap:10px}
+.note-card{
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:14px; padding:13px; cursor:pointer;
+}
+.note-card h4{margin:0 0 5px; font-size:14.5px; display:flex; align-items:center; gap:6px}
+.note-card p{margin:0; font-size:13px; color:#c5d0da; white-space:pre-wrap}
+.note-card .meta{margin-top:8px; font-size:11.5px; color:var(--dim); display:flex; flex-wrap:wrap; gap:8px}
+
+/* ---------- タブバー ---------- */
+.tabbar{
+  position:fixed; left:0; right:0; bottom:0; z-index:20;
+  display:flex; background:rgba(13,17,23,.94); backdrop-filter:blur(12px);
+  border-top:1px solid var(--line); padding-bottom:var(--safe-b);
+}
+.tab-btn{
+  flex:1; background:none; border:none; color:var(--dim);
+  font-size:10.5px; padding:8px 2px 7px; display:flex; flex-direction:column;
+  align-items:center; gap:2px;
+}
+.tab-btn span{font-size:19px; line-height:1}
+.tab-btn.active{color:var(--accent)}
+
+/* ---------- モーダル ---------- */
+.modal{
+  position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.6);
+  display:flex; align-items:flex-end; justify-content:center; overflow-y:auto;
+}
+.modal-box{
+  background:var(--panel); width:100%; max-width:560px;
+  border-radius:18px 18px 0 0; padding:18px 16px calc(18px + var(--safe-b));
+  margin-top:auto;
+}
+@media(min-width:600px){
+  .modal{align-items:center}
+  .modal-box{border-radius:18px; margin:20px 0}
+}
+.modal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px}
+.modal-head h3{margin:0; font-size:17px}
+.modal-close{background:none; border:none; color:var(--dim); font-size:19px; padding:4px 8px}
+.modal-foot{display:flex; gap:8px; align-items:center; margin-top:18px}
+.modal-foot .spacer{flex:1}
+.modal-foot .btn-primary{width:auto; padding:11px 22px}
+
+.form-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.form-grid label,label.full{display:block; font-size:12px; color:var(--dim); min-width:0}
+label.full{margin-top:10px}
+.form-grid input,label.full input,label.full textarea{margin-top:4px}
+label.checkbox{display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--text); margin-top:12px}
+label.checkbox input{width:auto}
+
+.pace-preview{
+  margin-top:10px; text-align:center; font-size:14px; color:var(--accent2);
+  min-height:22px; font-variant-numeric:tabular-nums;
+}
+.shot-zone{margin-bottom:14px}
+.shot-btn{
+  display:block; text-align:center; padding:13px;
+  background:var(--panel2); border:1px dashed var(--line); border-radius:12px;
+  font-size:14px; cursor:pointer;
+}
+.feel-row{display:flex; gap:5px; margin-top:5px}
+.feel-row button{
+  flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--dim);
+  border-radius:9px; padding:8px 2px; font-size:12px; min-width:0;
+}
+.feel-row button.on{background:var(--accent); color:#07230c; border-color:var(--accent)}
+
+/* ---------- トースト ---------- */
+.toast{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(84px + var(--safe-b)); z-index:60;
+  background:#1f2937; color:var(--text); border:1px solid var(--line);
+  padding:11px 18px; border-radius:999px; font-size:13.5px;
+  max-width:90%; text-align:center;
+}
