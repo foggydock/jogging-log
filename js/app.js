@@ -10,6 +10,7 @@ const S = {
   notes: [],
   noteFilter: null,  // 選択中のタグ
   todayNote: null,
+  todayNoteExpanded: null,
   editRunId: null,
   editNoteId: null,
   feel: null,
@@ -299,6 +300,9 @@ function pickTodayNote() {
   S.todayNote = S.notes[S.notes.length - 1];
 }
 
+/** 「きょう」画面で全文を出すか、折りたたむかの境目（文字数） */
+const TODAY_NOTE_PREVIEW_LEN = 160;
+
 function renderTodayNote() {
   const n = S.todayNote;
   const box = $('todayNoteBody');
@@ -306,10 +310,24 @@ function renderTodayNote() {
     box.innerHTML = '<p class="empty">メモがまだありません。<br>「メモ」タブで、走る気になる話を貯めていきましょう。</p>';
     return;
   }
+
+  const full = n.content;
+  const isLong = full.length > TODAY_NOTE_PREVIEW_LEN;
+  const expanded = S.todayNoteExpanded === n.id;
+  const shown = isLong && !expanded ? full.slice(0, TODAY_NOTE_PREVIEW_LEN) + '…' : full;
+
   box.innerHTML = `
     ${n.title ? `<h4>${esc(n.title)}</h4>` : ''}
-    <p>${esc(n.content)}</p>
+    <p>${esc(shown)}</p>
+    ${isLong ? `<button type="button" class="btn-ghost btn-sm" id="todayNoteToggle">${expanded ? '閉じる' : '続きを読む'}</button>` : ''}
     ${n.source ? `<div class="src">— ${esc(n.source)}</div>` : ''}`;
+
+  if (isLong) {
+    $('todayNoteToggle').addEventListener('click', () => {
+      S.todayNoteExpanded = expanded ? null : n.id;
+      renderTodayNote();
+    });
+  }
   markShown(n);
 }
 
@@ -844,6 +862,7 @@ function bind() {
 
   $('nextNoteBtn').addEventListener('click', () => {
     markShown._last = null;
+    S.todayNoteExpanded = null;
     pickTodayNote();
     renderTodayNote();
   });
