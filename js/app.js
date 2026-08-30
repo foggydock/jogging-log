@@ -279,11 +279,18 @@ function renderCheer() {
  * 「最後に見てからの日数」を重みにした抽選なので、
  * 直近に見たものはほぼ出ず、放置しているものほど出やすい。
  * 毎回きっちり同じ順にならないよう、確定ではなく抽選にしている。
+ * @param {string|null} excludeId 直前に見せたメモのid（あれば除外して選び直す）
  */
-function pickTodayNote() {
+function pickTodayNote(excludeId) {
   if (!S.notes.length) { S.todayNote = null; return; }
 
-  const weights = S.notes.map((n) => {
+  // 2件以上あるときは直前のメモを候補から外し、「次へ」連打で同じものが
+  // 連続で出ないようにする（1件しかなければ外しようがないのでそのまま）
+  const pool = excludeId && S.notes.length > 1
+    ? S.notes.filter((n) => n.id !== excludeId)
+    : S.notes;
+
+  const weights = pool.map((n) => {
     const days = n.last_shown_at
       ? (Date.now() - new Date(n.last_shown_at)) / 86400000
       : 365;                       // 一度も見ていないものは「1年見ていない」扱い
@@ -293,11 +300,11 @@ function pickTodayNote() {
 
   const total = weights.reduce((a, b) => a + b, 0);
   let r = Math.random() * total;
-  for (let i = 0; i < S.notes.length; i++) {
+  for (let i = 0; i < pool.length; i++) {
     r -= weights[i];
-    if (r <= 0) { S.todayNote = S.notes[i]; return; }
+    if (r <= 0) { S.todayNote = pool[i]; return; }
   }
-  S.todayNote = S.notes[S.notes.length - 1];
+  S.todayNote = pool[pool.length - 1];
 }
 
 /** 「きょう」画面で全文を出すか、折りたたむかの境目（文字数） */
@@ -861,9 +868,10 @@ function bind() {
   $('addNoteBtn').addEventListener('click', () => openNoteModal(null));
 
   $('nextNoteBtn').addEventListener('click', () => {
+    const prevId = S.todayNote ? S.todayNote.id : null;
     markShown._last = null;
     S.todayNoteExpanded = null;
-    pickTodayNote();
+    pickTodayNote(prevId);
     renderTodayNote();
   });
 
