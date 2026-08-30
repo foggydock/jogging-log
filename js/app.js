@@ -486,14 +486,19 @@ function renderAllRuns() {
    ============================================================ */
 function renderNotesTab() {
   const tags = [...new Set(S.notes.flatMap((n) => n.tags || []))].sort();
-  $('tagChips').innerHTML = tags.length
-    ? [`<button class="chip ${S.noteFilter ? '' : 'on'}" data-tag="">すべて</button>`]
+  const unseenCount = S.notes.filter((n) => !n.shown_count).length;
+  $('tagChips').innerHTML =
+    [`<button class="chip ${S.noteFilter ? '' : 'on'}" data-tag="">すべて</button>`]
+      .concat(unseenCount
+        ? [`<button class="chip ${S.noteFilter === '__unseen' ? 'on' : ''}" data-tag="__unseen">まだ見てない(${unseenCount})</button>`]
+        : [])
       .concat(tags.map((t) =>
         `<button class="chip ${S.noteFilter === t ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`))
-      .join('')
-    : '';
+      .join('');
 
-  const list = S.noteFilter
+  const list = S.noteFilter === '__unseen'
+    ? S.notes.filter((n) => !n.shown_count)
+    : S.noteFilter
     ? S.notes.filter((n) => (n.tags || []).includes(S.noteFilter))
     : S.notes;
 
