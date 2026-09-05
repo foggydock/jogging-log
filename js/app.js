@@ -244,6 +244,16 @@ function buildCheer() {
   }
 
   if (streak >= 2) lines.push(`${streak}週続けて走れています。`);
+
+  // 週末が近いのに今週まだ走っていない場合、連続記録が途切れる前に一押しする
+  if (streak >= 1 && !weeks.has(weekKey(today))) {
+    const dow = (new Date(today + 'T00:00:00').getDay() + 6) % 7; // 月=0
+    const daysLeft = 6 - dow; // 日曜まで残り日数（今日が日曜なら0）
+    if (daysLeft <= 1) {
+      lines.push(`⚠️ 今週はまだ走っていません。${daysLeft === 0 ? '今日中' : '明日まで'}に走らないと、${streak}週連続の記録が途切れます。`);
+    }
+  }
+
   if (monthKm > 0 && prevKm > 0) {
     lines.push(monthKm >= prevKm
       ? `今月は ${monthKm.toFixed(1)}km。先月ひと月分（${prevKm.toFixed(1)}km）をもう超えました。`

@@ -1,7 +1,7 @@
 /* ホーム画面から開けるようにするための最小限の Service Worker。
    データは Supabase から都度取るので、キャッシュするのは画面の枠だけ。
    更新したら CACHE の数字を上げる。 */
-const CACHE = 'jog-v4';
+const CACHE = 'jog-v5';
 const SHELL = [
   './',
   './index.html',
