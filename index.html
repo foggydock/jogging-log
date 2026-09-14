@@ -219,7 +219,8 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/dist/umd/supabase.js"></script>
+<!-- integrity で改ざんを検知する（版を上げるときは integrity も計算し直す） -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/dist/umd/supabase.js" integrity="sha384-ysv13JVP3fufiEXfjML9OdCa/rRbMJvUBOWyor82wfuK8INNZAvmbxHgKIHi+oqz" crossorigin="anonymous"></script>
 <script src="js/config.js?v=5"></script>
 <script src="js/app.js?v=5"></script>
 </body>
