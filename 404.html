@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>ジョギングログは引っ越しました</title>
+<style>
+  body{margin:0;padding:32px 20px;background:#f7f7f5;color:#222;line-height:1.7;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif}
+  main{max-width:520px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 12px}
+  .btn{display:block;width:100%;box-sizing:border-box;text-align:center;font-size:16px;padding:14px;border-radius:12px;border:none;margin:10px 0;text-decoration:none;cursor:pointer;font-family:inherit}
+  a.btn{background:#2563eb;color:#fff}
+  button.btn{background:#e5e7eb;color:#111}
+  textarea{width:100%;box-sizing:border-box;height:140px;font-size:12px}
+  .small{font-size:13px;color:#555}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>ジョギングログは新しいURLに引っ越しました</h1>
+  <p>新しいURL：<a href="https://jogging-log.pages.dev/">https://jogging-log.pages.dev/</a></p>
+  <p id="auto" class="small">自動で移動します…</p>
+  <section id="leftover" hidden>
+    <p id="leftover-msg"></p>
+    <button id="copy" class="btn" type="button">コピーする</button>
+    <p id="copied" class="small" hidden>コピーしました。新しいURLを開いて貼り付けてください。</p>
+    <p id="copy-fallback" class="small" hidden>自動でコピーできなかったので、下の欄を全部選んでコピーしてください。</p>
+    <textarea id="data" readonly hidden></textarea>
+    <a id="open" class="btn" href="https://jogging-log.pages.dev/">新しいURLで開く</a>
+  </section>
+  <p class="small">ホーム画面に追加している場合は、新しいURLで追加し直してください。</p>
+</main>
+<script>
+const CONFIG = {"repo":"jogging-log","to":"https://jogging-log.pages.dev/","removeKeys":["jog_gemini_key"],"removePrefixes":["sb-icxbyltorjpfexmwxzga-"],"cachePrefix":"jog-","leftover":""};
+
+function readJSON(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+function count(x) { return Array.isArray(x) ? x.length : (x && typeof x === 'object' ? Object.keys(x).length : 0); }
+
+// この端末の中にしか無いデータ（引き継がないと失われるもの）
+function leftoverFor(kind) {
+  try {
+    if (kind === 'aws') {
+      var questions = readJSON('awsq_questions_v1') || [], terms = readJSON('awsq_terms_v1') || [];
+      var progress = readJSON('awsq_progress_v1') || {}, studyLog = readJSON('awsq_studylog_v1') || {};
+      if (!count(questions) && !count(terms) && !count(progress) && !count(studyLog)) return null;
+      return {
+        text: JSON.stringify({ questions: questions, terms: terms, progress: progress, studyLog: studyLog, exportedAt: new Date().toISOString() }),
+        msg: 'この端末に学習データ（問題・用語・学習記録・学習時間）が残っています。「コピーする」を押してから新しいURLを開き、設定の「問題データの読み込み」の欄に貼り付けて「貼り付けたJSONを読み込む」を押すと引き継げます。'
+      };
+    }
+    if (kind === 'draft') {
+      var d = localStorage.getItem('raw_draft');
+      if (!d) return null;
+      return { text: d, msg: 'この端末に書きかけの下書きが残っています。「コピーする」を押してから新しいURLを開き、入力欄に貼り付けてください。' };
+    }
+  } catch (e) {}
+  return null;
+}
+
+(async function () {
+  var BASE = location.origin + '/' + CONFIG.repo + '/';
+
+  // 1) 引っ越し後は使わない、ログイン状態や API キーをこの端末から消す
+  try {
+    Object.keys(localStorage).forEach(function (k) {
+      var hit = CONFIG.removeKeys.indexOf(k) >= 0 || CONFIG.removePrefixes.some(function (p) { return k.indexOf(p) === 0; });
+      if (hit) localStorage.removeItem(k);
+    });
+  } catch (e) {}
+
+  // 2) 前の版のオフライン機能とキャッシュを片付ける（このアプリの分だけ）
+  var cleanup = (async function () {
+    try {
+      if ('serviceWorker' in navigator) {
+        var regs = await navigator.serviceWorker.getRegistrations();
+        for (var i = 0; i < regs.length; i++) if (regs[i].scope === BASE) await regs[i].unregister();
+      }
+      if (CONFIG.cachePrefix && 'caches' in window) {
+        var keys = await caches.keys();
+        for (var j = 0; j < keys.length; j++) if (keys[j].indexOf(CONFIG.cachePrefix) === 0) await caches.delete(keys[j]);
+      }
+    } catch (e) {}
+  })();
+  await Promise.race([cleanup, new Promise(function (r) { setTimeout(r, 1500); })]);
+
+  var dest = CONFIG.to + location.search + location.hash;
+  var ackKey = 'moved_ack_' + CONFIG.repo;
+  var acked = false;
+  try { acked = localStorage.getItem(ackKey) === '1'; } catch (e) {}
+  var left = (!acked && CONFIG.leftover) ? leftoverFor(CONFIG.leftover) : null;
+
+  // 3) 引き継ぐデータが無ければそのまま新しいURLへ
+  if (!left) { location.replace(dest); return; }
+
+  // 4) あれば自動では移動せず、コピーしてから開いてもらう
+  document.getElementById('auto').hidden = true;
+  document.getElementById('leftover-msg').textContent = left.msg;
+  document.getElementById('leftover').hidden = false;
+  document.getElementById('copy').onclick = async function () {
+    try {
+      await navigator.clipboard.writeText(left.text);
+      document.getElementById('copied').hidden = false;
+    } catch (e) {
+      var ta = document.getElementById('data');
+      ta.value = left.text; ta.hidden = false;
+      document.getElementById('copy-fallback').hidden = false;
+      ta.focus(); ta.select();
+    }
+  };
+  document.getElementById('open').onclick = function () {
+    try { localStorage.setItem(ackKey, '1'); } catch (e) {}   // 次からは自動で移動する
+    location.href = dest;
+    return false;
+  };
+})();
+
+</script>
+</body>
+</html>
