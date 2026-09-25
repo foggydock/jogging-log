@@ -693,7 +693,6 @@ function openSkipModal(iso) {
   const skip = S.skipDays.find((d) => d.skipped_on === iso);
   S.skipReason = skip ? skip.reason : null;
   $('skipOn').value = iso;
-  $('skipNote').value = skip ? (skip.note || '') : '';
   $('deleteSkipBtn').classList.toggle('hidden', !skip);
   renderSkipReasons();
   $('skipModal').classList.remove('hidden');
@@ -712,7 +711,8 @@ async function saveSkipDay() {
     user_id: S.user.id,
     skipped_on,
     reason: S.skipReason,
-    note: $('skipNote').value.trim() || null,
+    // 旧版で保存済みのメモがあれば、入力欄をなくしても消さない。
+    note: S.skipDays.find((d) => d.skipped_on === skipped_on)?.note || null,
   };
   $('saveSkipBtn').disabled = true;
   const { error } = await sb.from('jog_skip_days').upsert(row, { onConflict: 'user_id,skipped_on' });
