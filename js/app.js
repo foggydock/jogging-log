@@ -916,7 +916,13 @@ async function importBackup(file) {
   // すでにある日付＋時間の組み合わせは重複とみなして飛ばす
   const seen = new Set(S.runs.map((r) => `${r.ran_on}|${r.duration_sec}`));
   const newRuns = runs
-    .filter((r) => r.ran_on && !seen.has(`${r.ran_on}|${r.duration_sec ?? null}`))
+    .filter((r) => {
+      const key = `${r.ran_on}|${r.duration_sec ?? null}`;
+      if (!r.ran_on || seen.has(key)) return false;
+      // 同一バックアップの中で重複した行も、最初の1件だけを採用する。
+      seen.add(key);
+      return true;
+    })
     .map((r) => ({
       user_id: S.user.id,
       ran_on: r.ran_on,
@@ -934,7 +940,12 @@ async function importBackup(file) {
 
   const existingNotes = new Set(S.notes.map((n) => n.content));
   const newNotes = notes
-    .filter((n) => n.content && !existingNotes.has(n.content))
+    .filter((n) => {
+      if (!n.content || existingNotes.has(n.content)) return false;
+      // 同一バックアップの中で重複したメモも、最初の1件だけを採用する。
+      existingNotes.add(n.content);
+      return true;
+    })
     .map((n) => ({
       user_id: S.user.id,
       title: n.title ?? null,

@@ -31,7 +31,7 @@ python3 tools/convert_notion.py notion_export/out_1.csv jogging_import.json
 ```
 
 できた JSON を、アプリの「設定 > バックアップ > 取り込む」から読み込む。
-同じ日付＋同じ時間の記録は重複とみなして飛ばすので、二度押しても増えない。
+同じ日付＋同じ時間の記録は重複とみなして飛ばすので、二度押しても増えない。同じバックアップ内に重複して入っていた行も、最初の1件だけを取り込む。
 
 ※ `jogging_import.json` と `notion_export/` は実データなので `.gitignore` 済み。
 
