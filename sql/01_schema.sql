@@ -51,10 +51,28 @@ create index if not exists jog_notes_shown_idx
   on public.jog_notes (user_id, last_shown_at nulls first);
 
 -- ============================================================
--- 3. RLS（自分の行だけ読み書きできる）
+-- 3. 走れなかった理由（1日につき1つ）
+-- ============================================================
+create table if not exists public.jog_skip_days (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  skipped_on    date not null,
+  reason        text not null check (reason in ('rain', 'busy', 'rest', 'unmotivated', 'other')),
+  note          text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (user_id, skipped_on)
+);
+
+create index if not exists jog_skip_days_user_date_idx
+  on public.jog_skip_days (user_id, skipped_on desc);
+
+-- ============================================================
+-- 4. RLS（自分の行だけ読み書きできる）
 -- ============================================================
 alter table public.jog_runs  enable row level security;
 alter table public.jog_notes enable row level security;
+alter table public.jog_skip_days enable row level security;
 
 drop policy if exists jog_runs_own on public.jog_runs;
 create policy jog_runs_own on public.jog_runs
@@ -68,17 +86,24 @@ create policy jog_notes_own on public.jog_notes
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists jog_skip_days_own on public.jog_skip_days;
+create policy jog_skip_days_own on public.jog_skip_days
+  for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
 -- ============================================================
--- 4. GRANT（RLSだけでは足りない）
+-- 5. GRANT（RLSだけでは足りない）
 -- ============================================================
 grant select, insert, update, delete on public.jog_runs  to authenticated;
 grant select, insert, update, delete on public.jog_notes to authenticated;
+grant select, insert, update, delete on public.jog_skip_days to authenticated;
 
 -- ============================================================
--- 5. updated_at 自動更新
+-- 6. updated_at 自動更新
 -- ============================================================
 create or replace function public.jog_touch_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public as $$
 begin
   new.updated_at = now();
   return new;
@@ -90,4 +115,8 @@ create trigger jog_runs_touch before update on public.jog_runs
 
 drop trigger if exists jog_notes_touch on public.jog_notes;
 create trigger jog_notes_touch before update on public.jog_notes
+  for each row execute function public.jog_touch_updated_at();
+
+drop trigger if exists jog_skip_days_touch on public.jog_skip_days;
+create trigger jog_skip_days_touch before update on public.jog_skip_days
   for each row execute function public.jog_touch_updated_at();
