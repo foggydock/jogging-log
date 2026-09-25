@@ -7,6 +7,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const S = {
   user: null,
   runs: [],          // ran_on の新しい順
+  skipDays: [],       // 走れなかった理由（1日1件）
   notes: [],
   noteFilter: null,  // 選択中のタグ
   todayNote: null,
@@ -16,6 +17,8 @@ const S = {
   feel: null,
   listLimit: 30,
   yearFilter: 'all',
+  calendarMonth: null,
+  skipReason: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -155,16 +158,34 @@ async function onLoggedIn(user) {
    データ読み込み
    ============================================================ */
 async function loadAll() {
-  const [runsRes, notesRes] = await Promise.all([
-    sb.from('jog_runs').select('*').order('ran_on', { ascending: false }),
-    sb.from('jog_notes').select('*').order('created_at', { ascending: false }),
+  const [runsRes, notesRes, skipDaysRes] = await Promise.all([
+    fetchAll('jog_runs', 'ran_on'),
+    fetchAll('jog_notes', 'created_at'),
+    fetchAll('jog_skip_days', 'skipped_on'),
   ]);
   if (runsRes.error) { toast('記録の読み込みに失敗：' + runsRes.error.message, 5000); return; }
   if (notesRes.error) { toast('メモの読み込みに失敗：' + notesRes.error.message, 5000); return; }
+  if (skipDaysRes.error) { toast('走れなかった日の読み込みに失敗：' + skipDaysRes.error.message, 5000); return; }
 
   S.runs = runsRes.data || [];
   S.notes = notesRes.data || [];
+  S.skipDays = skipDaysRes.data || [];
   renderAll();
+}
+
+/** Supabase の1回の取得上限を越えても、画面とバックアップを全件にする。 */
+async function fetchAll(table, orderColumn) {
+  const rows = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb.from(table).select('*')
+      .eq('user_id', S.user.id)
+      .order(orderColumn, { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return { data: rows, error: null };
+  }
 }
 
 function renderAll() {
@@ -374,6 +395,7 @@ function runRowHTML(r) {
 
 function renderRunsTab() {
   renderStatGrid();
+  renderCalendar();
   renderOddNotice();
   renderMonthChart();
   renderYearFilter();
@@ -407,6 +429,48 @@ function renderStatGrid() {
       <div class="value">${esc(c.value)}<span class="unit">${esc(c.unit)}</span></div>
       <div class="sub">${esc(c.sub)}</div>
     </div>`).join('');
+}
+
+const SKIP_META = {
+  rain: { mark: '☔', label: '雨' },
+  busy: { mark: '▣', label: '仕事・予定' },
+  rest: { mark: '♡', label: '体調・休養' },
+  unmotivated: { mark: '！', label: 'サボり' },
+  other: { mark: '…', label: 'その他' },
+};
+
+/** 月のカレンダー。空白の日は評価せず、走った日と明示的な理由だけを見える化する。 */
+function renderCalendar() {
+  if (!S.calendarMonth) S.calendarMonth = todayISO().slice(0, 7);
+  const month = S.calendarMonth;
+  const [year, monthNo] = month.split('-').map(Number);
+  const first = new Date(year, monthNo - 1, 1);
+  const lastDate = new Date(year, monthNo, 0).getDate();
+  const firstOffset = (first.getDay() + 6) % 7; // 月曜始まり
+  const today = todayISO();
+  const runDays = new Set(S.runs.filter((r) => r.ran_on.startsWith(month)).map((r) => r.ran_on));
+  const skipByDay = new Map(S.skipDays.filter((d) => d.skipped_on.startsWith(month)).map((d) => [d.skipped_on, d]));
+  const unmotivatedDays = [...skipByDay.values()].filter((d) => d.reason === 'unmotivated' && !runDays.has(d.skipped_on)).length;
+  const evaluated = runDays.size + unmotivatedDays;
+  const rate = evaluated ? Math.round((runDays.size / evaluated) * 100) : null;
+
+  $('calendarTitle').textContent = `${year}年${monthNo}月の記録`;
+  $('opportunityRate').innerHTML = rate == null
+    ? '走れる日の達成率：<b>—</b><span>（走った日または「サボり」を記録すると表示されます）</span>'
+    : `走れる日の達成率：<b>${rate}%</b><span>（${runDays.size}日 / ${evaluated}日）</span>`;
+
+  const cells = Array.from({ length: firstOffset }, () => '<span class="calendar-day empty"></span>');
+  for (let day = 1; day <= lastDate; day++) {
+    const iso = `${month}-${pad(day)}`;
+    const skip = skipByDay.get(iso);
+    const ran = runDays.has(iso);
+    const meta = skip ? SKIP_META[skip.reason] : null;
+    const state = ran ? 'ran' : skip ? `skip-${skip.reason}` : '';
+    const mark = ran ? '●' : meta ? meta.mark : '';
+    const title = ran ? '走った日' : meta ? `${meta.label}${skip.note ? `：${skip.note}` : ''}` : '理由を記録';
+    cells.push(`<button type="button" class="calendar-day ${state} ${iso === today ? 'today' : ''}" data-skip-day="${iso}" title="${esc(title)}">${day}<span class="day-mark">${mark}</span></button>`);
+  }
+  $('monthCalendar').innerHTML = cells.join('');
 }
 
 function renderMonthChart() {
@@ -623,6 +687,53 @@ async function deleteRun() {
 }
 
 /* ============================================================
+   走れなかった日の理由
+   ============================================================ */
+function openSkipModal(iso) {
+  const skip = S.skipDays.find((d) => d.skipped_on === iso);
+  S.skipReason = skip ? skip.reason : null;
+  $('skipOn').value = iso;
+  $('skipNote').value = skip ? (skip.note || '') : '';
+  $('deleteSkipBtn').classList.toggle('hidden', !skip);
+  renderSkipReasons();
+  $('skipModal').classList.remove('hidden');
+}
+
+function renderSkipReasons() {
+  els('[data-skip-reason]').forEach((b) =>
+    b.classList.toggle('on', b.dataset.skipReason === S.skipReason));
+}
+
+async function saveSkipDay() {
+  const skipped_on = $('skipOn').value;
+  if (!skipped_on) { toast('日付を入れてください'); return; }
+  if (!S.skipReason) { toast('理由を選んでください'); return; }
+  const row = {
+    user_id: S.user.id,
+    skipped_on,
+    reason: S.skipReason,
+    note: $('skipNote').value.trim() || null,
+  };
+  $('saveSkipBtn').disabled = true;
+  const { error } = await sb.from('jog_skip_days').upsert(row, { onConflict: 'user_id,skipped_on' });
+  $('saveSkipBtn').disabled = false;
+  if (error) { toast('保存に失敗：' + error.message, 5000); return; }
+  $('skipModal').classList.add('hidden');
+  toast('理由を記録しました');
+  await loadAll();
+}
+
+async function deleteSkipDay() {
+  const skipped_on = $('skipOn').value;
+  if (!skipped_on || !confirm('この理由の記録を消します。よろしいですか？')) return;
+  const { error } = await sb.from('jog_skip_days').delete().eq('skipped_on', skipped_on);
+  if (error) { toast('削除に失敗：' + error.message, 5000); return; }
+  $('skipModal').classList.add('hidden');
+  toast('理由の記録を消しました');
+  await loadAll();
+}
+
+/* ============================================================
    メモモーダル
    ============================================================ */
 function openNoteModal(note) {
@@ -770,10 +881,11 @@ async function readScreenshot(file) {
    ============================================================ */
 function exportBackup() {
   const payload = {
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
     runs: S.runs.map(({ id, user_id, created_at, updated_at, ...r }) => r),
     notes: S.notes.map(({ id, user_id, created_at, updated_at, ...n }) => n),
+    skip_days: S.skipDays.map(({ id, user_id, created_at, updated_at, ...d }) => d),
   };
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -781,7 +893,7 @@ function exportBackup() {
   a.download = `jogging-log-${todayISO()}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  $('backupStatus').textContent = `${payload.runs.length}件の記録と${payload.notes.length}件のメモを書き出しました。`;
+  $('backupStatus').textContent = `${payload.runs.length}件の記録・${payload.notes.length}件のメモ・${payload.skip_days.length}件の理由を書き出しました。`;
 }
 
 async function importBackup(file) {
@@ -795,7 +907,8 @@ async function importBackup(file) {
 
   const runs = Array.isArray(data.runs) ? data.runs : [];
   const notes = Array.isArray(data.notes) ? data.notes : [];
-  if (!runs.length && !notes.length) {
+  const skipDays = Array.isArray(data.skip_days) ? data.skip_days : [];
+  if (!runs.length && !notes.length && !skipDays.length) {
     $('backupStatus').textContent = '取り込めるデータが入っていません。';
     return;
   }
@@ -831,16 +944,30 @@ async function importBackup(file) {
       favorite: !!n.favorite,
     }));
 
-  const skipped = (runs.length - newRuns.length) + (notes.length - newNotes.length);
-  if (!newRuns.length && !newNotes.length) {
+  const existingSkipDays = new Set(S.skipDays.map((d) => d.skipped_on));
+  const newSkipDays = skipDays
+    .filter((d) => {
+      if (!d.skipped_on || !SKIP_META[d.reason] || existingSkipDays.has(d.skipped_on)) return false;
+      existingSkipDays.add(d.skipped_on);
+      return true;
+    })
+    .map((d) => ({
+      user_id: S.user.id,
+      skipped_on: d.skipped_on,
+      reason: d.reason,
+      note: d.note ?? null,
+    }));
+
+  const skipped = (runs.length - newRuns.length) + (notes.length - newNotes.length) + (skipDays.length - newSkipDays.length);
+  if (!newRuns.length && !newNotes.length && !newSkipDays.length) {
     $('backupStatus').textContent = `新しいデータはありませんでした（${skipped}件はすでに入っています）。`;
     return;
   }
-  if (!confirm(`記録${newRuns.length}件・メモ${newNotes.length}件を取り込みます。よろしいですか？`)) return;
+  if (!confirm(`記録${newRuns.length}件・メモ${newNotes.length}件・理由${newSkipDays.length}件を取り込みます。よろしいですか？`)) return;
 
   // 500件ずつ送る。途中で失敗したらそこで止めて理由を出す
   let done = 0;
-  for (const [table, rows] of [['jog_runs', newRuns], ['jog_notes', newNotes]]) {
+  for (const [table, rows] of [['jog_runs', newRuns], ['jog_notes', newNotes], ['jog_skip_days', newSkipDays]]) {
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
       $('backupStatus').textContent = `取り込み中… ${done}件`;
@@ -909,6 +1036,8 @@ function bind() {
       S.noteFilter = chip.dataset.tag || null;
       renderNotesTab();
     }
+    const day = e.target.closest('[data-skip-day]');
+    if (day) openSkipModal(day.dataset.skipDay);
   });
 
   els('[data-close]').forEach((b) =>
@@ -918,6 +1047,8 @@ function bind() {
 
   $('saveRunBtn').addEventListener('click', saveRun);
   $('deleteRunBtn').addEventListener('click', deleteRun);
+  $('saveSkipBtn').addEventListener('click', saveSkipDay);
+  $('deleteSkipBtn').addEventListener('click', deleteSkipDay);
   $('saveNoteBtn').addEventListener('click', saveNote);
   $('deleteNoteBtn').addEventListener('click', deleteNote);
 
@@ -927,6 +1058,23 @@ function bind() {
     S.feel = S.feel === Number(b.dataset.feel) ? null : Number(b.dataset.feel);
     renderFeel();
   }));
+  els('[data-skip-reason]').forEach((b) => b.addEventListener('click', () => {
+    S.skipReason = b.dataset.skipReason;
+    renderSkipReasons();
+  }));
+
+  const moveCalendarMonth = (offset) => {
+    const d = new Date(S.calendarMonth + '-01T00:00:00');
+    d.setMonth(d.getMonth() + offset);
+    S.calendarMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    renderCalendar();
+  };
+  $('prevMonthBtn').addEventListener('click', () => moveCalendarMonth(-1));
+  $('nextMonthBtn').addEventListener('click', () => moveCalendarMonth(1));
+  $('currentMonthBtn').addEventListener('click', () => {
+    S.calendarMonth = todayISO().slice(0, 7);
+    renderCalendar();
+  });
 
   $('shotFile').addEventListener('change', (e) => {
     if (e.target.files[0]) readScreenshot(e.target.files[0]);
