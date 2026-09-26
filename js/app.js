@@ -53,9 +53,40 @@ function parseDuration(str) {
   const parts = String(str).trim().split(':').filter((p) => p !== '');
   if (!parts.length || parts.some((p) => !/^\d+$/.test(p))) return null;
   const n = parts.map(Number);
-  if (n.length === 3) return n[0] * 3600 + n[1] * 60 + n[2];
-  if (n.length === 2) return n[0] * 60 + n[1];
+  if (n.length === 3) {
+    if (n[0] > 24 || n[1] > 59 || n[2] > 59 || (n[0] === 24 && (n[1] || n[2]))) return null;
+    return n[0] * 3600 + n[1] * 60 + n[2];
+  }
+  if (n.length === 2) {
+    if (n[1] > 59) return null;
+    return n[0] * 60 + n[1];
+  }
   if (n.length === 1) return n[0] * 60;
+  return null;
+}
+
+// 手入力・バックアップ・DBで同じ範囲を守る。DB側の制約が最終防衛線。
+const RUN_NUMERIC_FIELDS = {
+  distance_km: { label: '距離', min: 0, max: 200 },
+  avg_hr: { label: '平均心拍', min: 20, max: 300, integer: true },
+  cadence: { label: 'ケイデンス', min: 0, max: 400, integer: true },
+  kcal: { label: '消費kcal', min: 0, max: 10000, integer: true },
+  elevation_m: { label: '上昇高度', min: 0, max: 10000, integer: true },
+  feeling: { label: '体感', min: 1, max: 5, integer: true },
+};
+
+function validateRunMetrics(row) {
+  if (row.duration_sec != null &&
+      (!Number.isInteger(row.duration_sec) || row.duration_sec < 0 || row.duration_sec > 86400)) {
+    return '時間は0秒〜24時間の範囲で入れてください';
+  }
+  for (const [key, spec] of Object.entries(RUN_NUMERIC_FIELDS)) {
+    const value = row[key];
+    if (value == null) continue;
+    if (!Number.isFinite(value) || value < spec.min || value > spec.max || (spec.integer && !Number.isInteger(value))) {
+      return `${spec.label}は${spec.min}〜${spec.max}${key === 'distance_km' ? 'km' : ''}の範囲で入れてください`;
+    }
+  }
   return null;
 }
 
@@ -659,6 +690,8 @@ async function saveRun() {
     feeling: S.feel,
     note: $('fNote').value.trim() || null,
   };
+  const validationError = validateRunMetrics(row);
+  if (validationError) { toast(validationError, 4000); return; }
 
   $('saveRunBtn').disabled = true;
   let error;
@@ -915,28 +948,31 @@ async function importBackup(file) {
 
   // すでにある日付＋時間の組み合わせは重複とみなして飛ばす
   const seen = new Set(S.runs.map((r) => `${r.ran_on}|${r.duration_sec}`));
-  const newRuns = runs
+  const candidateRuns = runs
     .filter((r) => {
       const key = `${r.ran_on}|${r.duration_sec ?? null}`;
       if (!r.ran_on || seen.has(key)) return false;
       // 同一バックアップの中で重複した行も、最初の1件だけを採用する。
       seen.add(key);
       return true;
-    })
+    });
+  const newRuns = candidateRuns
     .map((r) => ({
       user_id: S.user.id,
       ran_on: r.ran_on,
       title: r.title ?? null,
-      duration_sec: r.duration_sec ?? null,
-      distance_km: r.distance_km ?? null,
-      avg_hr: r.avg_hr ?? null,
-      cadence: r.cadence ?? null,
-      kcal: r.kcal ?? null,
-      elevation_m: r.elevation_m ?? null,
-      feeling: r.feeling ?? null,
+      duration_sec: r.duration_sec == null ? null : Number(r.duration_sec),
+      distance_km: r.distance_km == null ? null : Number(r.distance_km),
+      avg_hr: r.avg_hr == null ? null : Number(r.avg_hr),
+      cadence: r.cadence == null ? null : Number(r.cadence),
+      kcal: r.kcal == null ? null : Number(r.kcal),
+      elevation_m: r.elevation_m == null ? null : Number(r.elevation_m),
+      feeling: r.feeling == null ? null : Number(r.feeling),
       note: r.note ?? null,
       source: r.source || 'import',
-    }));
+    }))
+    .filter((r) => !validateRunMetrics(r));
+  const invalidRunCount = candidateRuns.length - newRuns.length;
 
   const existingNotes = new Set(S.notes.map((n) => n.content));
   const newNotes = notes
@@ -969,9 +1005,10 @@ async function importBackup(file) {
       note: d.note ?? null,
     }));
 
-  const skipped = (runs.length - newRuns.length) + (notes.length - newNotes.length) + (skipDays.length - newSkipDays.length);
+  const duplicateCount = (runs.length - candidateRuns.length) + (notes.length - newNotes.length) + (skipDays.length - newSkipDays.length);
+  const skipped = duplicateCount + invalidRunCount;
   if (!newRuns.length && !newNotes.length && !newSkipDays.length) {
-    $('backupStatus').textContent = `新しいデータはありませんでした（${skipped}件はすでに入っています）。`;
+    $('backupStatus').textContent = `新しいデータはありませんでした（重複${duplicateCount}件${invalidRunCount ? `、数値の範囲外${invalidRunCount}件` : ''}）。`;
     return;
   }
   if (!confirm(`記録${newRuns.length}件・メモ${newNotes.length}件・理由${newSkipDays.length}件を取り込みます。よろしいですか？`)) return;
@@ -995,7 +1032,7 @@ async function importBackup(file) {
 
   await loadAll();
   $('backupStatus').textContent =
-    `${done}件を取り込みました${skipped ? `（${skipped}件は重複のため飛ばしました）` : ''}。`;
+    `${done}件を取り込みました${skipped ? `（重複${duplicateCount}件${invalidRunCount ? `、数値の範囲外${invalidRunCount}件` : ''}は対象外）` : ''}。`;
 }
 
 /* ============================================================

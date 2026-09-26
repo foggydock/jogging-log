@@ -26,6 +26,16 @@ create table if not exists public.jog_runs (
 create index if not exists jog_runs_user_date_idx
   on public.jog_runs (user_id, ran_on desc);
 
+-- 入力経路にかかわらず集計を壊す値を保存しない
+alter table public.jog_runs
+  add constraint jog_runs_duration_sec_range check (duration_sec is null or duration_sec between 0 and 86400),
+  add constraint jog_runs_distance_km_range check (distance_km is null or distance_km between 0 and 200),
+  add constraint jog_runs_avg_hr_range check (avg_hr is null or avg_hr between 20 and 300),
+  add constraint jog_runs_cadence_range check (cadence is null or cadence between 0 and 400),
+  add constraint jog_runs_kcal_range check (kcal is null or kcal between 0 and 10000),
+  add constraint jog_runs_elevation_m_range check (elevation_m is null or elevation_m between 0 and 10000),
+  add constraint jog_runs_feeling_range check (feeling is null or feeling between 1 and 5);
+
 -- 同じ日に2本走ることもあるので日付のユニーク制約は付けない
 
 -- ============================================================
