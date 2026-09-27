@@ -14,7 +14,6 @@ const S = {
   todayNoteExpanded: null,
   editRunId: null,
   editNoteId: null,
-  feel: null,
   listLimit: 30,
   yearFilter: 'all',
   calendarMonth: null,
@@ -72,7 +71,6 @@ const RUN_NUMERIC_FIELDS = {
   cadence: { label: 'ケイデンス', min: 0, max: 400, integer: true },
   kcal: { label: '消費kcal', min: 0, max: 10000, integer: true },
   elevation_m: { label: '上昇高度', min: 0, max: 10000, integer: true },
-  feeling: { label: '体感', min: 1, max: 5, integer: true },
 };
 
 function validateRunMetrics(row) {
@@ -626,7 +624,6 @@ function renderNotesTab() {
    ============================================================ */
 function openRunModal(run) {
   S.editRunId = run ? run.id : null;
-  S.feel = run ? run.feeling : null;
   $('runModalTitle').textContent = run ? '記録を編集' : '走った記録';
   $('fRanOn').value = run ? run.ran_on : todayISO();
   $('fTitle').value = run ? (run.title || '') : '朝ジョギング';
@@ -636,17 +633,10 @@ function openRunModal(run) {
   $('fCadence').value = run && run.cadence != null ? run.cadence : '';
   $('fKcal').value = run && run.kcal != null ? run.kcal : '';
   $('fElev').value = run && run.elevation_m != null ? run.elevation_m : '';
-  $('fNote').value = run ? (run.note || '') : '';
   $('shotStatus').textContent = '';
   $('deleteRunBtn').classList.toggle('hidden', !run);
-  renderFeel();
   updatePacePreview();
   $('runModal').classList.remove('hidden');
-}
-
-function renderFeel() {
-  els('#feelRow button').forEach((b) =>
-    b.classList.toggle('on', Number(b.dataset.feel) === S.feel));
 }
 
 function updatePacePreview() {
@@ -687,8 +677,6 @@ async function saveRun() {
     cadence: num('fCadence'),
     kcal: num('fKcal'),
     elevation_m: num('fElev'),
-    feeling: S.feel,
-    note: $('fNote').value.trim() || null,
   };
   const validationError = validateRunMetrics(row);
   if (validationError) { toast(validationError, 4000); return; }
@@ -1102,10 +1090,6 @@ function bind() {
 
   $('fDuration').addEventListener('input', updatePacePreview);
   $('fDistance').addEventListener('input', updatePacePreview);
-  els('#feelRow button').forEach((b) => b.addEventListener('click', () => {
-    S.feel = S.feel === Number(b.dataset.feel) ? null : Number(b.dataset.feel);
-    renderFeel();
-  }));
   els('[data-skip-reason]').forEach((b) => b.addEventListener('click', () => {
     S.skipReason = b.dataset.skipReason;
     renderSkipReasons();

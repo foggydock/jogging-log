@@ -1,15 +1,15 @@
 /* ホーム画面から開けるようにするための最小限の Service Worker。
    データは Supabase から都度取るので、キャッシュするのは画面の枠だけ。
    更新したら CACHE の数字を上げる。 */
-const CACHE = 'jog-v11';
+const CACHE = 'jog-v12';
 // 同じドメイン（foggydock.github.io）の他のアプリとキャッシュの置き場が共通なので、消すのはこの接頭辞の古い版だけにする
 const CACHE_PREFIX = 'jog-';
 // index.html は入れない（Cloudflare Pages では "/" へ転送され、転送済みの応答を画面遷移に返すと開けなくなる）
 const SHELL = [
   './',
-  './style.css?v=11',
-  './js/config.js?v=11',
-  './js/app.js?v=11',
+  './style.css?v=12',
+  './js/config.js?v=12',
+  './js/app.js?v=12',
   './icon-192.png',
 ];
 
