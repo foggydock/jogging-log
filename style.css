@@ -111,6 +111,9 @@ textarea{resize:vertical}
 .calendar-day.today{border-color:var(--accent2)}
 .calendar-day .day-mark{display:block; margin-top:1px; text-align:center; color:var(--accent); font-size:16px; line-height:1}
 .calendar-day.ran{border-color:#2c7440; background:#143020; color:var(--text)}
+.calendar-day .last-year-mark{position:absolute; right:4px; bottom:2px; color:#8ed8a2; font-size:14px; line-height:1}
+.calendar-day.ran .last-year-mark{color:#b8efc5}
+.last-year-legend{color:#8ed8a2}
 .calendar-day.skip-rain .day-mark{color:var(--accent2)}
 .calendar-day.skip-busy .day-mark{color:var(--gold)}
 .calendar-day.skip-rest .day-mark{color:#d6a9ff}

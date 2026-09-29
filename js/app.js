@@ -478,6 +478,10 @@ function renderCalendar() {
   const firstOffset = (first.getDay() + 6) % 7; // 月曜始まり
   const today = todayISO();
   const runDays = new Set(S.runs.filter((r) => r.ran_on.startsWith(month)).map((r) => r.ran_on));
+  const lastYearMonth = `${year - 1}-${pad(monthNo)}`;
+  const lastYearRunDays = new Set(S.runs
+    .filter((r) => r.ran_on.startsWith(lastYearMonth))
+    .map((r) => r.ran_on.slice(-2)));
   const skipByDay = new Map(S.skipDays.filter((d) => d.skipped_on.startsWith(month)).map((d) => [d.skipped_on, d]));
   const unmotivatedDays = [...skipByDay.values()].filter((d) => d.reason === 'unmotivated' && !runDays.has(d.skipped_on)).length;
   const evaluated = runDays.size + unmotivatedDays;
@@ -493,11 +497,17 @@ function renderCalendar() {
     const iso = `${month}-${pad(day)}`;
     const skip = skipByDay.get(iso);
     const ran = runDays.has(iso);
+    const ranLastYear = lastYearRunDays.has(pad(day));
     const meta = skip ? SKIP_META[skip.reason] : null;
-    const state = ran ? 'ran' : skip ? `skip-${skip.reason}` : '';
+    const state = `${ran ? 'ran' : skip ? `skip-${skip.reason}` : ''}${ranLastYear ? ' ran-last-year' : ''}`;
     const mark = ran ? '●' : meta ? meta.mark : '';
-    const title = ran ? '走った日' : meta ? `${meta.label}${skip.note ? `：${skip.note}` : ''}` : '理由を記録';
-    cells.push(`<button type="button" class="calendar-day ${state} ${iso === today ? 'today' : ''}" data-skip-day="${iso}" title="${esc(title)}">${day}<span class="day-mark">${mark}</span></button>`);
+    const lastYearMark = ranLastYear ? '<span class="last-year-mark" aria-hidden="true">○</span>' : '';
+    const title = ran
+      ? `走った日${ranLastYear ? '（昨年も走った日）' : ''}`
+      : ranLastYear
+        ? '昨年に走った日'
+        : meta ? `${meta.label}${skip.note ? `：${skip.note}` : ''}` : '理由を記録';
+    cells.push(`<button type="button" class="calendar-day ${state} ${iso === today ? 'today' : ''}" data-skip-day="${iso}" title="${esc(title)}">${day}<span class="day-mark">${mark}</span>${lastYearMark}</button>`);
   }
   $('monthCalendar').innerHTML = cells.join('');
 }
