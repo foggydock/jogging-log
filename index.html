@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 
@@ -77,10 +77,10 @@
         </div>
       </div>
       <p id="opportunityRate" class="calendar-summary"></p>
-      <p class="hint">走った日は緑、昨年も走った日は ○ で表示します。走れなかった日はタップして理由を残せます。雨・予定・休養は率に含めず、「サボり」だけを走れたはずの日として数えます。</p>
+      <p class="hint">走った日は緑、昨年も走った日は ○ で表示します。走れなかった日はタップして理由を残せます。雨・予定・休養は率に含めず、「サボり・寝坊」を走れたはずの日として数えます。</p>
       <div class="calendar-weekdays"><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span><span>日</span></div>
       <div id="monthCalendar" class="month-calendar"></div>
-      <p class="calendar-legend"><span>● 今年走った</span><span class="last-year-legend">○ 昨年も走った</span><span>☔ 雨</span><span>▣ 予定</span><span>♡ 休養</span><span>！ サボり</span></p>
+      <p class="calendar-legend"><span>● 今年走った</span><span class="last-year-legend">○ 昨年も走った</span><span>☔ 雨</span><span>▣ 予定</span><span>♡ 休養</span><span>！ サボり</span><span>⏰ 寝坊</span></p>
     </div>
 
     <div class="card card-odd hidden" id="oddNotice"></div>
@@ -174,6 +174,7 @@
       <button type="button" data-skip-reason="busy">▣<small>仕事・予定</small></button>
       <button type="button" data-skip-reason="rest">♡<small>体調・休養</small></button>
       <button type="button" data-skip-reason="unmotivated">！<small>サボり</small></button>
+      <button type="button" data-skip-reason="overslept">⏰<small>寝坊</small></button>
       <button type="button" data-skip-reason="other">…<small>その他</small></button>
     </div>
     <div class="modal-foot">
@@ -250,7 +251,7 @@
 
 <!-- integrity で改ざんを検知する（版を上げるときは integrity も計算し直す） -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/dist/umd/supabase.js" integrity="sha384-ysv13JVP3fufiEXfjML9OdCa/rRbMJvUBOWyor82wfuK8INNZAvmbxHgKIHi+oqz" crossorigin="anonymous"></script>
-<script src="js/config.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/config.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
 </body>
 </html>

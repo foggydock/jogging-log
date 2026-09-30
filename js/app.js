@@ -465,6 +465,7 @@ const SKIP_META = {
   busy: { mark: '▣', label: '仕事・予定' },
   rest: { mark: '♡', label: '体調・休養' },
   unmotivated: { mark: '！', label: 'サボり' },
+  overslept: { mark: '⏰', label: '寝坊' },
   other: { mark: '…', label: 'その他' },
 };
 
@@ -483,13 +484,14 @@ function renderCalendar() {
     .filter((r) => r.ran_on.startsWith(lastYearMonth))
     .map((r) => r.ran_on.slice(-2)));
   const skipByDay = new Map(S.skipDays.filter((d) => d.skipped_on.startsWith(month)).map((d) => [d.skipped_on, d]));
-  const unmotivatedDays = [...skipByDay.values()].filter((d) => d.reason === 'unmotivated' && !runDays.has(d.skipped_on)).length;
-  const evaluated = runDays.size + unmotivatedDays;
+  const opportunityMissDays = [...skipByDay.values()]
+    .filter((d) => ['unmotivated', 'overslept'].includes(d.reason) && !runDays.has(d.skipped_on)).length;
+  const evaluated = runDays.size + opportunityMissDays;
   const rate = evaluated ? Math.round((runDays.size / evaluated) * 100) : null;
 
   $('calendarTitle').textContent = `${year}年${monthNo}月の記録`;
   $('opportunityRate').innerHTML = rate == null
-    ? '走れる日の達成率：<b>—</b><span>（走った日または「サボり」を記録すると表示されます）</span>'
+    ? '走れる日の達成率：<b>—</b><span>（走った日または「サボり・寝坊」を記録すると表示されます）</span>'
     : `走れる日の達成率：<b>${rate}%</b><span>（${runDays.size}日 / ${evaluated}日）</span>`;
 
   const cells = Array.from({ length: firstOffset }, () => '<span class="calendar-day empty"></span>');
