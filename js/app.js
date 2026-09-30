@@ -210,6 +210,8 @@ async function fetchAll(table, orderColumn) {
     const { data, error } = await sb.from(table).select('*')
       .eq('user_id', S.user.id)
       .order(orderColumn, { ascending: false })
+      // 同じ日付・日時の行も id で順番を固定し、ページ境界での重複・欠落を防ぐ。
+      .order('id', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) return { data: null, error };
     rows.push(...(data || []));

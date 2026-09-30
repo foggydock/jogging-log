@@ -23,8 +23,8 @@ create table if not exists public.jog_runs (
   updated_at    timestamptz not null default now()
 );
 
-create index if not exists jog_runs_user_date_idx
-  on public.jog_runs (user_id, ran_on desc);
+create index if not exists jog_runs_user_date_id_idx
+  on public.jog_runs (user_id, ran_on desc, id desc);
 
 -- 入力経路にかかわらず集計を壊す値を保存しない
 alter table public.jog_runs
@@ -55,8 +55,8 @@ create table if not exists public.jog_notes (
   updated_at    timestamptz not null default now()
 );
 
-create index if not exists jog_notes_user_idx
-  on public.jog_notes (user_id, created_at desc);
+create index if not exists jog_notes_user_created_id_idx
+  on public.jog_notes (user_id, created_at desc, id desc);
 create index if not exists jog_notes_shown_idx
   on public.jog_notes (user_id, last_shown_at nulls first);
 
