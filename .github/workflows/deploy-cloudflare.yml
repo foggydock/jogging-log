@@ -1,0 +1,29 @@
+name: Cloudflare Pages に配信
+
+# main に push されたとき（と、手動実行）だけ動く。fork や PR からは動かない。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: 配信するファイルだけを集める
+        run: |
+          mkdir _site
+          rsync -a --exclude='.git' --exclude='.github' --exclude='.claude' --exclude='CLAUDE.md' --exclude='_site' ./ _site/
+      - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _site --project-name=jogging-log --branch=main
