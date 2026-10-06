@@ -44,7 +44,7 @@ def parse_duration(s):
     return h * 3600 + m * 60 + sec
 
 
-def clean_title(name, date_str):
+def clean_title(name):
     """Name から日付部分を取り除いて『朝ジョギング』だけにする"""
     t = re.sub(r"\d{4}年\d{1,2}月\d{1,2}日", "", name)
     t = re.sub(r"\d{4}-\d{1,2}-\d{1,2}", "", t)
@@ -83,7 +83,7 @@ def main():
 
             out.append({
                 "ran_on": date,
-                "title": clean_title(name, date),
+                "title": clean_title(name),
                 "duration_sec": sec,
                 "distance_km": km,
                 "source": "notion",

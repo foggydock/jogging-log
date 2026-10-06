@@ -18,6 +18,10 @@ const S = {
   yearFilter: 'all',
   calendarMonth: null,
   skipReason: null,
+  loadSeq: 0,        // 読み込みが重なったとき、最後に始めた分だけを使うための番号
+  loadedAt: 0,       // 最後に読み込めた時刻
+  renderedOn: null,  // 画面を描いた日（日付が変わったかを見る）
+  shotToken: 0,      // スクショ読み取りの結果を、今開いているフォームにだけ入れるための番号
 };
 
 const $ = (id) => document.getElementById(id);
@@ -71,6 +75,8 @@ const RUN_NUMERIC_FIELDS = {
   cadence: { label: 'ケイデンス', min: 0, max: 400, integer: true },
   kcal: { label: '消費kcal', min: 0, max: 10000, integer: true },
   elevation_m: { label: '上昇高度', min: 0, max: 10000, integer: true },
+  // 入力欄はもう無いが、旧版の記録がバックアップに入っていることがある
+  feeling: { label: '体感', min: 1, max: 5, integer: true },
 };
 
 function validateRunMetrics(row) {
@@ -94,15 +100,25 @@ function paceOf(run) {
   return run.duration_sec / Number(run.distance_km);
 }
 
+const sumKm = (rows) => rows.reduce((a, r) => a + Number(r.distance_km || 0), 0);
+const sumSec = (rows) => rows.reduce((a, r) => a + (r.duration_sec || 0), 0);
+
+/** 3分/km より速い記録は人間の市民ランナーには出せないので、入力ミスとみなす */
+const MIN_PLAUSIBLE_PACE_SEC = 180;
+
 /**
  * 「自己ベスト」に採用してよい走りか。
- * 3分/km より速い記録は人間の市民ランナーには出せないので、入力ミスとみなして
- * ベスト計算から外す（記録そのものは消さない。一覧には出るので手で直せる）。
+ * 入力ミスとみなした記録はベスト計算から外す（記録そのものは消さない。一覧には出るので手で直せる）。
  * 距離が短すぎる走りもベストには数えない。
  */
 function isPlausibleBest(run) {
   const p = paceOf(run);
-  return p != null && p >= 180 && Number(run.distance_km) >= 3;
+  return p != null && p >= MIN_PLAUSIBLE_PACE_SEC && Number(run.distance_km) >= 3;
+}
+
+/** いちばんペースが速い走り（rows はペースが出せるものに絞ってから渡す） */
+function fastestRun(rows) {
+  return rows.length ? rows.reduce((a, b) => (paceOf(a) <= paceOf(b) ? a : b)) : null;
 }
 
 /** 秒/km → "6'59\"/km" */
@@ -119,9 +135,18 @@ function fmtDate(iso) {
   return `${m}/${d}(${w})`;
 }
 
+/** Date → "YYYY-MM-DD"（端末の時刻で） */
+const isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** Date → "YYYY-MM" */
+const isoMonth = (d) => isoDate(d).slice(0, 7);
+
 function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return isoDate(new Date());
+}
+
+/** "YYYY-MM-DD" の形で、実在する日付か（2月30日などは不可） */
+function isISODate(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && isoDate(new Date(s + 'T00:00:00')) === s;
 }
 
 function daysBetween(isoA, isoB) {
@@ -135,7 +160,7 @@ function weekKey(iso) {
   const d = new Date(iso + 'T00:00:00');
   const dow = (d.getDay() + 6) % 7; // 月=0
   d.setDate(d.getDate() - dow);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return isoDate(d);
 }
 
 function esc(s) {
@@ -157,6 +182,8 @@ async function initAuth() {
 }
 
 async function login() {
+  // Enter の連打でログイン処理が二重に走らないようにする
+  if ($('loginBtn').disabled) return;
   const email = $('loginEmail').value.trim();
   const password = $('loginPassword').value;
   if (!email || !password) {
@@ -187,11 +214,14 @@ async function onLoggedIn(user) {
    データ読み込み
    ============================================================ */
 async function loadAll() {
+  // 保存直後や画面に戻ったときの読み込みが重なっても、最後に始めた分だけを画面に出す
+  const seq = ++S.loadSeq;
   const [runsRes, notesRes, skipDaysRes] = await Promise.all([
     fetchAll('jog_runs', 'ran_on'),
     fetchAll('jog_notes', 'created_at'),
     fetchAll('jog_skip_days', 'skipped_on'),
   ]);
+  if (seq !== S.loadSeq) return;
   if (runsRes.error) { toast('記録の読み込みに失敗：' + runsRes.error.message, 5000); return; }
   if (notesRes.error) { toast('メモの読み込みに失敗：' + notesRes.error.message, 5000); return; }
   if (skipDaysRes.error) { toast('走れなかった日の読み込みに失敗：' + skipDaysRes.error.message, 5000); return; }
@@ -199,6 +229,7 @@ async function loadAll() {
   S.runs = runsRes.data || [];
   S.notes = notesRes.data || [];
   S.skipDays = skipDaysRes.data || [];
+  S.loadedAt = Date.now();
   renderAll();
 }
 
@@ -220,6 +251,7 @@ async function fetchAll(table, orderColumn) {
 }
 
 function renderAll() {
+  S.renderedOn = todayISO();
   renderToday();
   renderRunsTab();
   renderNotesTab();
@@ -250,14 +282,16 @@ function buildCheer() {
   }
 
   const today = todayISO();
-  const totalKm = S.runs.reduce((a, r) => a + Number(r.distance_km || 0), 0);
-  const totalSec = S.runs.reduce((a, r) => a + (r.duration_sec || 0), 0);
+  const totalKm = sumKm(S.runs);
+  const totalSec = sumSec(S.runs);
 
   // 今月 / 先月
   const ym = today.slice(0, 7);
   const prev = new Date(today + 'T00:00:00');
+  // 31日などのまま月を戻すと、短い月を飛び越して今月に戻ってしまうので、先に1日にする
+  prev.setDate(1);
   prev.setMonth(prev.getMonth() - 1);
-  const pym = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}`;
+  const pym = isoMonth(prev);
   const monthKm = sumKm(S.runs.filter((r) => r.ran_on.startsWith(ym)));
   const prevKm = sumKm(S.runs.filter((r) => r.ran_on.startsWith(pym)));
 
@@ -267,33 +301,21 @@ function buildCheer() {
   const cur = new Date(weekKey(today) + 'T00:00:00');
   // 今週まだ走っていなくても、先週から続いていれば連続は途切れていない扱い
   if (!weeks.has(weekKey(today))) cur.setDate(cur.getDate() - 7);
-  while (weeks.has(`${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`)) {
+  while (weeks.has(isoDate(cur))) {
     streak++;
     cur.setDate(cur.getDate() - 7);
   }
 
-  const last = S.runs[0];
-  const gap = daysBetween(last.ran_on, today);
+  // 未来の日付の記録（入力ミス）があっても「前回は-3日前」とならないよう、今日までの最新を見る
+  const last = S.runs.find((r) => r.ran_on <= today);
 
-  // 直近90日で最速（3km以上の走りに限る）
-  const recent = S.runs.filter((r) =>
-    daysBetween(r.ran_on, today) <= 90 && isPlausibleBest(r));
-  const fastest = recent.length
-    ? recent.reduce((a, b) => (paceOf(a) <= paceOf(b) ? a : b)) : null;
+  // 直近90日で最速（3km以上の走りに限る。未来の日付は入れない）
+  const fastest = fastestRun(S.runs.filter((r) =>
+    r.ran_on <= today && daysBetween(r.ran_on, today) <= 90 && isPlausibleBest(r)));
 
   // 本文を選ぶ
   const lines = [];
-  if (gap === 0) {
-    lines.push('今日はもう走りました。おつかれさまでした。');
-  } else if (gap === 1) {
-    lines.push('昨日走りました。今日は休んでもいい日です。');
-  } else if (gap >= 10) {
-    lines.push(`前回から${gap}日。\nいきなり戻さなくていいので、まず20分だけ。`);
-  } else if (gap >= 4) {
-    lines.push(`前回から${gap}日空きました。\n今日は軽く、ゆっくりで十分です。`);
-  } else {
-    lines.push(`前回は${gap}日前。いい間隔です。`);
-  }
+  if (last) lines.push(gapMessage(daysBetween(last.ran_on, today)));
 
   if (streak >= 2) lines.push(`${streak}週続けて走れています。`);
 
@@ -326,7 +348,14 @@ function buildCheer() {
   return { text: lines.join('\n'), stats };
 }
 
-const sumKm = (rows) => rows.reduce((a, r) => a + Number(r.distance_km || 0), 0);
+/** 前回走ってからの日数に合わせたひとこと */
+function gapMessage(gap) {
+  if (gap === 0) return '今日はもう走りました。おつかれさまでした。';
+  if (gap === 1) return '昨日走りました。今日は休んでもいい日です。';
+  if (gap >= 10) return `前回から${gap}日。\nいきなり戻さなくていいので、まず20分だけ。`;
+  if (gap >= 4) return `前回から${gap}日空きました。\n今日は軽く、ゆっくりで十分です。`;
+  return `前回は${gap}日前。いい間隔です。`;
+}
 
 function renderCheer() {
   const { text, stats } = buildCheer();
@@ -435,13 +464,12 @@ function renderRunsTab() {
 
 function renderStatGrid() {
   const totalKm = sumKm(S.runs);
-  const totalSec = S.runs.reduce((a, r) => a + (r.duration_sec || 0), 0);
+  const totalSec = sumSec(S.runs);
   const ym = todayISO().slice(0, 7);
   const monthRuns = S.runs.filter((r) => r.ran_on.startsWith(ym));
   const year = todayISO().slice(0, 4);
   const yearRuns = S.runs.filter((r) => r.ran_on.startsWith(year));
-  const paced = S.runs.filter(isPlausibleBest);
-  const best = paced.length ? paced.reduce((a, b) => (paceOf(a) <= paceOf(b) ? a : b)) : null;
+  const best = fastestRun(S.runs.filter(isPlausibleBest));
   const longest = S.runs.length
     ? S.runs.reduce((a, b) => (Number(a.distance_km || 0) >= Number(b.distance_km || 0) ? a : b)) : null;
 
@@ -506,11 +534,12 @@ function renderCalendar() {
     const state = `${ran ? 'ran' : skip ? `skip-${skip.reason}` : ''}${ranLastYear ? ' ran-last-year' : ''}`;
     const mark = ran ? '●' : meta ? meta.mark : '';
     const lastYearMark = ranLastYear ? '<span class="last-year-mark" aria-hidden="true">○</span>' : '';
+    // 理由を付けた日は、昨年走った日でも理由を先に出す
     const title = ran
       ? `走った日${ranLastYear ? '（昨年も走った日）' : ''}`
-      : ranLastYear
-        ? '昨年に走った日'
-        : meta ? `${meta.label}${skip.note ? `：${skip.note}` : ''}` : '理由を記録';
+      : meta
+        ? `${meta.label}${skip.note ? `：${skip.note}` : ''}${ranLastYear ? '（昨年は走った日）' : ''}`
+        : ranLastYear ? '昨年に走った日' : '理由を記録';
     cells.push(`<button type="button" class="calendar-day ${state} ${iso === today ? 'today' : ''}" data-skip-day="${iso}" title="${esc(title)}">${day}<span class="day-mark">${mark}</span>${lastYearMark}</button>`);
   }
   $('monthCalendar').innerHTML = cells.join('');
@@ -527,7 +556,7 @@ function renderMonthChart() {
   const d = new Date(todayISO() + 'T00:00:00');
   d.setDate(1);
   for (let i = 0; i < 24; i++) {
-    months.unshift(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`);
+    months.unshift(isoMonth(d));
     d.setMonth(d.getMonth() - 1);
   }
   const max = Math.max(1, ...months.map((m) => by.get(m) || 0));
@@ -562,7 +591,7 @@ function scrollChartToEnd() {
 function renderOddNotice() {
   const odd = S.runs.filter((r) => {
     const p = paceOf(r);
-    return p != null && p < 180;   // 3分/km より速い＝入力ミス
+    return p != null && p < MIN_PLAUSIBLE_PACE_SEC;
   });
   const box = $('oddNotice');
   if (!odd.length) { box.classList.add('hidden'); return; }
@@ -576,6 +605,8 @@ function renderOddNotice() {
 
 function renderYearFilter() {
   const years = [...new Set(S.runs.map((r) => r.ran_on.slice(0, 4)))].sort().reverse();
+  // 選んでいた年の記録がなくなったら、空欄のまま絞り込まずに「すべての年」へ戻す
+  if (!years.includes(S.yearFilter)) S.yearFilter = 'all';
   const sel = $('yearFilter');
   sel.innerHTML = `<option value="all">すべての年</option>` +
     years.map((y) => `<option value="${y}">${y}年</option>`).join('');
@@ -603,18 +634,18 @@ function renderAllRuns() {
    ============================================================ */
 function renderNotesTab() {
   const tags = [...new Set(S.notes.flatMap((n) => n.tags || []))].sort();
-  const unseenCount = S.notes.filter((n) => !n.shown_count).length;
+  const unseen = S.notes.filter((n) => !n.shown_count);
   $('tagChips').innerHTML =
     [`<button class="chip ${S.noteFilter ? '' : 'on'}" data-tag="">すべて</button>`]
-      .concat(unseenCount
-        ? [`<button class="chip ${S.noteFilter === '__unseen' ? 'on' : ''}" data-tag="__unseen">まだ見てない(${unseenCount})</button>`]
+      .concat(unseen.length
+        ? [`<button class="chip ${S.noteFilter === '__unseen' ? 'on' : ''}" data-tag="__unseen">まだ見てない(${unseen.length})</button>`]
         : [])
       .concat(tags.map((t) =>
         `<button class="chip ${S.noteFilter === t ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`))
       .join('');
 
   const list = S.noteFilter === '__unseen'
-    ? S.notes.filter((n) => !n.shown_count)
+    ? unseen
     : S.noteFilter
     ? S.notes.filter((n) => (n.tags || []).includes(S.noteFilter))
     : S.notes;
@@ -638,6 +669,7 @@ function renderNotesTab() {
    ============================================================ */
 function openRunModal(run) {
   S.editRunId = run ? run.id : null;
+  S.shotToken++; // 読み取り途中のスクショがあっても、この開き直したフォームには入れない
   $('runModalTitle').textContent = run ? '記録を編集' : '走った記録';
   $('fRanOn').value = run ? run.ran_on : todayISO();
   $('fTitle').value = run ? (run.title || '') : '朝ジョギング';
@@ -700,7 +732,7 @@ async function saveRun() {
   if (S.editRunId) {
     ({ error } = await sb.from('jog_runs').update(row).eq('id', S.editRunId));
   } else {
-    row.source = row.source || 'manual';
+    row.source = 'manual';
     ({ error } = await sb.from('jog_runs').insert(row));
   }
   $('saveRunBtn').disabled = false;
@@ -725,12 +757,22 @@ async function deleteRun() {
    走れなかった日の理由
    ============================================================ */
 function openSkipModal(iso) {
-  const skip = S.skipDays.find((d) => d.skipped_on === iso);
-  S.skipReason = skip ? skip.reason : null;
   $('skipOn').value = iso;
+  S.skipReason = null;
+  syncSkipModal();
+  $('skipModal').classList.remove('hidden');
+}
+
+/**
+ * 日付欄の日に合わせて、保存済みの理由と「記録を消す」ボタンを出す。
+ * 日付を変えたときにも呼ぶので、元の日の記録を消したり、
+ * 変えた先の日の理由を気づかずに上書きしたりしない。
+ */
+function syncSkipModal() {
+  const skip = S.skipDays.find((d) => d.skipped_on === $('skipOn').value);
+  if (skip) S.skipReason = skip.reason;
   $('deleteSkipBtn').classList.toggle('hidden', !skip);
   renderSkipReasons();
-  $('skipModal').classList.remove('hidden');
 }
 
 function renderSkipReasons() {
@@ -791,7 +833,8 @@ async function saveNote() {
     title: $('nTitle').value.trim() || null,
     content,
     source: $('nSource').value.trim() || null,
-    tags: $('nTags').value.split(',').map((t) => t.trim()).filter(Boolean),
+    // 日本語入力の「、」「，」でも区切る
+    tags: $('nTags').value.split(/[,、，]/).map((t) => t.trim()).filter(Boolean),
     favorite: $('nFav').checked,
   };
 
@@ -832,6 +875,9 @@ async function readScreenshot(file) {
     $('shotStatus').textContent = '先に「設定」タブで Gemini APIキーを保存してください。';
     return;
   }
+  // 読み取り中にフォームを閉じて別の記録を開いたら、結果をそこへ入れない
+  const token = ++S.shotToken;
+  const stale = () => token !== S.shotToken;
   $('shotStatus').textContent = '読み取り中…（10秒ほどかかります）';
 
   let b64;
@@ -843,9 +889,10 @@ async function readScreenshot(file) {
       fr.readAsDataURL(file);
     });
   } catch (e) {
-    $('shotStatus').textContent = e.message;
+    if (!stale()) $('shotStatus').textContent = e.message;
     return;
   }
+  if (stale()) return;
 
   const prompt = `このAppleフィットネスのワークアウト画面から数値を読み取り、JSONだけを返してください。
 説明文やコードブロックは不要です。読み取れない項目は null にしてください。
@@ -889,10 +936,12 @@ async function readScreenshot(file) {
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error('AIが読み取れませんでした。手入力してください。');
     json = JSON.parse(text);
+    if (!json || typeof json !== 'object') throw new Error('AIが読み取れませんでした。手入力してください。');
   } catch (e) {
-    $('shotStatus').textContent = '失敗：' + e.message;
+    if (!stale()) $('shotStatus').textContent = '失敗：' + e.message;
     return;
   }
+  if (stale()) return;
 
   // 読めた項目だけ埋める（元の入力は消さない）
   const set = (id, v, fmt) => {
@@ -900,14 +949,16 @@ async function readScreenshot(file) {
     $(id).value = fmt ? fmt(v) : v;
     return 1;
   };
+  // "5.02km" のような数字でない返事は入れない
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
   let n = 0;
-  n += set('fRanOn', /^\d{4}-\d{2}-\d{2}$/.test(json.ran_on || '') ? json.ran_on : null);
-  n += set('fDuration', json.duration_sec, fmtDuration);
-  n += set('fDistance', json.distance_km);
-  n += set('fHr', json.avg_hr);
-  n += set('fCadence', json.cadence);
-  n += set('fKcal', json.kcal);
-  n += set('fElev', json.elevation_m);
+  n += set('fRanOn', screenshotDate(json.ran_on));
+  n += set('fDuration', num(json.duration_sec), (v) => fmtDuration(Math.round(v)));
+  n += set('fDistance', num(json.distance_km));
+  n += set('fHr', num(json.avg_hr));
+  n += set('fCadence', num(json.cadence));
+  n += set('fKcal', num(json.kcal));
+  n += set('fElev', num(json.elevation_m));
   updatePacePreview();
 
   $('shotStatus').textContent = n
@@ -915,16 +966,34 @@ async function readScreenshot(file) {
     : '読み取れませんでした。手入力してください。';
 }
 
+/**
+ * 読み取った日付を入力欄に入れてよい形にする。
+ * 画面に年が無いと今年として読むので、年明けに去年12月のスクショを読むと未来の日付になる。
+ * 走った記録が未来のはずはないので、そのときは1年戻す（それでも未来なら入れない）。
+ */
+function screenshotDate(iso) {
+  if (!isISODate(iso)) return null;
+  const today = todayISO();
+  if (iso <= today) return iso;
+  const lastYear = `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
+  return isISODate(lastYear) && lastYear <= today ? lastYear : null;
+}
+
 /* ============================================================
    バックアップ
    ============================================================ */
+// id・持ち主・作成更新日時は取り込むときに付け直すので書き出さない
+const stripMeta = ({ id, user_id, created_at, updated_at, ...rest }) => rest;
+
+const numOrNull = (v) => (v == null ? null : Number(v));
+
 function exportBackup() {
   const payload = {
     version: 2,
     exported_at: new Date().toISOString(),
-    runs: S.runs.map(({ id, user_id, created_at, updated_at, ...r }) => r),
-    notes: S.notes.map(({ id, user_id, created_at, updated_at, ...n }) => n),
-    skip_days: S.skipDays.map(({ id, user_id, created_at, updated_at, ...d }) => d),
+    runs: S.runs.map(stripMeta),
+    notes: S.notes.map(stripMeta),
+    skip_days: S.skipDays.map(stripMeta),
   };
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -944,9 +1013,11 @@ async function importBackup(file) {
     return;
   }
 
-  const runs = Array.isArray(data.runs) ? data.runs : [];
-  const notes = Array.isArray(data.notes) ? data.notes : [];
-  const skipDays = Array.isArray(data.skip_days) ? data.skip_days : [];
+  // 中身が null などの行は読まない（そこで止まって途中までしか取り込めなくなるのを防ぐ）
+  const rowsOf = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
+  const runs = rowsOf(data?.runs);
+  const notes = rowsOf(data?.notes);
+  const skipDays = rowsOf(data?.skip_days);
   if (!runs.length && !notes.length && !skipDays.length) {
     $('backupStatus').textContent = '取り込めるデータが入っていません。';
     return;
@@ -967,23 +1038,23 @@ async function importBackup(file) {
       user_id: S.user.id,
       ran_on: r.ran_on,
       title: r.title ?? null,
-      duration_sec: r.duration_sec == null ? null : Number(r.duration_sec),
-      distance_km: r.distance_km == null ? null : Number(r.distance_km),
-      avg_hr: r.avg_hr == null ? null : Number(r.avg_hr),
-      cadence: r.cadence == null ? null : Number(r.cadence),
-      kcal: r.kcal == null ? null : Number(r.kcal),
-      elevation_m: r.elevation_m == null ? null : Number(r.elevation_m),
-      feeling: r.feeling == null ? null : Number(r.feeling),
+      duration_sec: numOrNull(r.duration_sec),
+      distance_km: numOrNull(r.distance_km),
+      avg_hr: numOrNull(r.avg_hr),
+      cadence: numOrNull(r.cadence),
+      kcal: numOrNull(r.kcal),
+      elevation_m: numOrNull(r.elevation_m),
+      feeling: numOrNull(r.feeling),
       note: r.note ?? null,
       source: r.source || 'import',
     }))
-    .filter((r) => !validateRunMetrics(r));
-  const invalidRunCount = candidateRuns.length - newRuns.length;
+    // 1件でもDBに入らない値があると500件まとめて失敗するので、送る前に外す
+    .filter((r) => isISODate(r.ran_on) && !validateRunMetrics(r));
 
   const existingNotes = new Set(S.notes.map((n) => n.content));
   const newNotes = notes
     .filter((n) => {
-      if (!n.content || existingNotes.has(n.content)) return false;
+      if (typeof n.content !== 'string' || !n.content || existingNotes.has(n.content)) return false;
       // 同一バックアップの中で重複したメモも、最初の1件だけを採用する。
       existingNotes.add(n.content);
       return true;
@@ -997,10 +1068,11 @@ async function importBackup(file) {
       favorite: !!n.favorite,
     }));
 
+  const validSkipDays = skipDays.filter((d) => isISODate(d.skipped_on) && SKIP_META[d.reason]);
   const existingSkipDays = new Set(S.skipDays.map((d) => d.skipped_on));
-  const newSkipDays = skipDays
+  const newSkipDays = validSkipDays
     .filter((d) => {
-      if (!d.skipped_on || !SKIP_META[d.reason] || existingSkipDays.has(d.skipped_on)) return false;
+      if (existingSkipDays.has(d.skipped_on)) return false;
       existingSkipDays.add(d.skipped_on);
       return true;
     })
@@ -1011,10 +1083,11 @@ async function importBackup(file) {
       note: d.note ?? null,
     }));
 
-  const duplicateCount = (runs.length - candidateRuns.length) + (notes.length - newNotes.length) + (skipDays.length - newSkipDays.length);
-  const skipped = duplicateCount + invalidRunCount;
+  const duplicateCount = (runs.length - candidateRuns.length) + (notes.length - newNotes.length) + (validSkipDays.length - newSkipDays.length);
+  const invalidCount = (candidateRuns.length - newRuns.length) + (skipDays.length - validSkipDays.length);
+  const skipped = duplicateCount + invalidCount;
   if (!newRuns.length && !newNotes.length && !newSkipDays.length) {
-    $('backupStatus').textContent = `新しいデータはありませんでした（重複${duplicateCount}件${invalidRunCount ? `、数値の範囲外${invalidRunCount}件` : ''}）。`;
+    $('backupStatus').textContent = `新しいデータはありませんでした（重複${duplicateCount}件${invalidCount ? `、日付や数値の不備${invalidCount}件` : ''}）。`;
     return;
   }
   if (!confirm(`記録${newRuns.length}件・メモ${newNotes.length}件・理由${newSkipDays.length}件を取り込みます。よろしいですか？`)) return;
@@ -1038,7 +1111,7 @@ async function importBackup(file) {
 
   await loadAll();
   $('backupStatus').textContent =
-    `${done}件を取り込みました${skipped ? `（重複${duplicateCount}件${invalidRunCount ? `、数値の範囲外${invalidRunCount}件` : ''}は対象外）` : ''}。`;
+    `${done}件を取り込みました${skipped ? `（重複${duplicateCount}件${invalidCount ? `、日付や数値の不備${invalidCount}件` : ''}は対象外）` : ''}。`;
 }
 
 /* ============================================================
@@ -1069,6 +1142,7 @@ function bind() {
     S.todayNoteExpanded = null;
     pickTodayNote(prevId);
     renderTodayNote();
+    renderNotesTab(); // 「まだ見てない」の件数を合わせる
   });
 
   // 記録の行をタップして編集
@@ -1096,8 +1170,13 @@ function bind() {
 
   els('[data-close]').forEach((b) =>
     b.addEventListener('click', () => $(b.dataset.close).classList.add('hidden')));
-  els('.modal').forEach((m) =>
-    m.addEventListener('click', (e) => { if (e.target === m) m.classList.add('hidden'); }));
+  els('.modal').forEach((m) => {
+    // 入力欄で文字を選びながら外までなぞったときに閉じて、入力が消えないようにする。
+    // 押した場所も離した場所も背景のときだけ閉じる。
+    let downOnBackdrop = false;
+    m.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === m; });
+    m.addEventListener('click', (e) => { if (e.target === m && downOnBackdrop) m.classList.add('hidden'); });
+  });
 
   $('saveRunBtn').addEventListener('click', saveRun);
   $('deleteRunBtn').addEventListener('click', deleteRun);
@@ -1108,6 +1187,7 @@ function bind() {
 
   $('fDuration').addEventListener('input', updatePacePreview);
   $('fDistance').addEventListener('input', updatePacePreview);
+  $('skipOn').addEventListener('change', syncSkipModal);
   els('[data-skip-reason]').forEach((b) => b.addEventListener('click', () => {
     S.skipReason = b.dataset.skipReason;
     renderSkipReasons();
@@ -1116,7 +1196,7 @@ function bind() {
   const moveCalendarMonth = (offset) => {
     const d = new Date(S.calendarMonth + '-01T00:00:00');
     d.setMonth(d.getMonth() + offset);
-    S.calendarMonth = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    S.calendarMonth = isoMonth(d);
     renderCalendar();
   };
   $('prevMonthBtn').addEventListener('click', () => moveCalendarMonth(-1));
@@ -1152,15 +1232,48 @@ function bind() {
 
   $('exportBtn').addEventListener('click', exportBackup);
   $('importBtn').addEventListener('click', () => $('importFile').click());
-  $('importFile').addEventListener('change', (e) => {
-    if (e.target.files[0]) importBackup(e.target.files[0]);
+  $('importFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
     e.target.value = '';
+    if (!file) return;
+    // 取り込み中にもう一度押すと、重複の確認が間に合わず同じ記録が二重に入るので、終わるまで押せなくする
+    $('importBtn').disabled = true;
+    try {
+      await importBackup(file);
+    } finally {
+      $('importBtn').disabled = false;
+    }
   });
 
   $('logoutBtn').addEventListener('click', async () => {
     await sb.auth.signOut();
     location.reload();
   });
+
+  document.addEventListener('visibilitychange', onResume);
+}
+
+/** 画面に戻ってきてから、最新のデータを取り直すまでの間隔 */
+const RELOAD_AFTER_MS = 60 * 1000;
+
+/**
+ * ホーム画面のアプリは開いたまま残るので、戻ってきたときに今日の日付と最新のデータに合わせる。
+ */
+function onResume() {
+  if (document.visibilityState !== 'visible' || !S.user) return;
+
+  // 日付が変わっていたら「きょう」とカレンダーを今日に合わせ、今日のひとことも選び直す
+  const today = todayISO();
+  if (S.renderedOn && S.renderedOn !== today) {
+    if (S.calendarMonth === S.renderedOn.slice(0, 7)) S.calendarMonth = today.slice(0, 7);
+    S.todayNote = null;
+    S.todayNoteExpanded = null;
+    markShown._last = null;
+    renderAll();
+  }
+
+  // 別の端末や Claude から足した記録を反映する（すぐ戻ったときは読み直さない）
+  if (Date.now() - S.loadedAt > RELOAD_AFTER_MS) loadAll();
 }
 
 bind();
