@@ -758,6 +758,7 @@ async function deleteRun() {
    ============================================================ */
 function openSkipModal(iso) {
   $('skipOn').value = iso;
+  $('skipOn').max = todayISO();
   S.skipReason = null;
   syncSkipModal();
   $('skipModal').classList.remove('hidden');
@@ -783,6 +784,7 @@ function renderSkipReasons() {
 async function saveSkipDay() {
   const skipped_on = $('skipOn').value;
   if (!skipped_on) { toast('日付を入れてください'); return; }
+  if (skipped_on > todayISO()) { toast('未来の日には理由を付けられません'); return; }
   if (!S.skipReason) { toast('理由を選んでください'); return; }
   const row = {
     user_id: S.user.id,
@@ -1068,7 +1070,7 @@ async function importBackup(file) {
       favorite: !!n.favorite,
     }));
 
-  const validSkipDays = skipDays.filter((d) => isISODate(d.skipped_on) && SKIP_META[d.reason]);
+  const validSkipDays = skipDays.filter((d) => isISODate(d.skipped_on) && d.skipped_on <= todayISO() && SKIP_META[d.reason]);
   const existingSkipDays = new Set(S.skipDays.map((d) => d.skipped_on));
   const newSkipDays = validSkipDays
     .filter((d) => {
