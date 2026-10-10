@@ -514,15 +514,19 @@ function renderCalendar() {
     .filter((r) => r.ran_on.startsWith(lastYearMonth))
     .map((r) => r.ran_on.slice(-2)));
   const skipByDay = new Map(S.skipDays.filter((d) => d.skipped_on.startsWith(month)).map((d) => [d.skipped_on, d]));
-  const opportunityMissDays = [...skipByDay.values()]
-    .filter((d) => ['unmotivated', 'overslept'].includes(d.reason) && !runDays.has(d.skipped_on)).length;
-  const evaluated = runDays.size + opportunityMissDays;
-  const rate = evaluated ? Math.round((runDays.size / evaluated) * 100) : null;
+  const fmtRate = (prefix) => {
+    const days = new Set(S.runs.filter((r) => r.ran_on.startsWith(prefix)).map((r) => r.ran_on));
+    const missed = new Set(S.skipDays
+      .filter((d) => d.skipped_on.startsWith(prefix) && ['unmotivated', 'overslept'].includes(d.reason) && !days.has(d.skipped_on))
+      .map((d) => d.skipped_on)).size;
+    const evaluated = days.size + missed;
+    return evaluated
+      ? `<b>${Math.round((days.size / evaluated) * 100)}%</b><span>（${days.size}日 / ${evaluated}日）</span>`
+      : '<b>—</b><span>（走った日または「サボり・寝坊」を記録すると表示されます）</span>';
+  };
 
   $('calendarTitle').textContent = `${year}年${monthNo}月の記録`;
-  $('opportunityRate').innerHTML = rate == null
-    ? '走れる日の達成率：<b>—</b><span>（走った日または「サボり・寝坊」を記録すると表示されます）</span>'
-    : `走れる日の達成率：<b>${rate}%</b><span>（${runDays.size}日 / ${evaluated}日）</span>`;
+  $('opportunityRate').innerHTML = `走れる日の達成率（${monthNo}月）：${fmtRate(month)}<br>走れる日の達成率（${year}年）：${fmtRate(String(year))}`;
 
   const cells = Array.from({ length: firstOffset }, () => '<span class="calendar-day empty"></span>');
   for (let day = 1; day <= lastDate; day++) {
