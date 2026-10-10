@@ -514,7 +514,7 @@ function renderCalendar() {
     .filter((r) => r.ran_on.startsWith(lastYearMonth))
     .map((r) => r.ran_on.slice(-2)));
   const skipByDay = new Map(S.skipDays.filter((d) => d.skipped_on.startsWith(month)).map((d) => [d.skipped_on, d]));
-  // 達成率の記録を本格的に始めた日。この日より前は集計しない（年の集計のみ）
+  // 達成率の記録を本格的に始めた日。この日より前は集計しない（月・年とも）
   const RATE_START = '2026-09-26';
   const fmtRate = (prefix, from = '') => {
     const days = new Set(S.runs.filter((r) => r.ran_on.startsWith(prefix) && r.ran_on >= from).map((r) => r.ran_on));
@@ -528,7 +528,7 @@ function renderCalendar() {
   };
 
   $('calendarTitle').textContent = `${year}年${monthNo}月の記録`;
-  $('opportunityRate').innerHTML = `走れる日の達成率（${monthNo}月）：${fmtRate(month)}<br>走れる日の達成率（${year}年${year === 2026 ? '・9/26〜' : ''}）：${fmtRate(String(year), RATE_START)}`;
+  $('opportunityRate').innerHTML = `走れる日の達成率（${monthNo}月${month === '2026-09' ? '・9/26〜' : ''}）：${fmtRate(month, RATE_START)}<br>走れる日の達成率（${year}年${year === 2026 ? '・9/26〜' : ''}）：${fmtRate(String(year), RATE_START)}`;
 
   const cells = Array.from({ length: firstOffset }, () => '<span class="calendar-day empty"></span>');
   for (let day = 1; day <= lastDate; day++) {
