@@ -216,21 +216,40 @@ async function onLoggedIn(user) {
 async function loadAll() {
   // 保存直後や画面に戻ったときの読み込みが重なっても、最後に始めた分だけを画面に出す
   const seq = ++S.loadSeq;
+  // 失敗しても、すでに表示しているデータは消さない。再試行中は画面上部に状態を出す
+  showLoadBanner('読み込み中…', true);
   const [runsRes, notesRes, skipDaysRes] = await Promise.all([
     fetchAll('jog_runs', 'ran_on'),
     fetchAll('jog_notes', 'created_at'),
     fetchAll('jog_skip_days', 'skipped_on'),
   ]);
   if (seq !== S.loadSeq) return;
-  if (runsRes.error) { toast('記録の読み込みに失敗：' + runsRes.error.message, 5000); return; }
-  if (notesRes.error) { toast('メモの読み込みに失敗：' + notesRes.error.message, 5000); return; }
-  if (skipDaysRes.error) { toast('走れなかった日の読み込みに失敗：' + skipDaysRes.error.message, 5000); return; }
+  const failed = [
+    runsRes.error && `記録（${runsRes.error.message}）`,
+    notesRes.error && `メモ（${notesRes.error.message}）`,
+    skipDaysRes.error && `走れなかった日（${skipDaysRes.error.message}）`,
+  ].filter(Boolean);
+  if (failed.length) {
+    showLoadBanner('読み込みに失敗：' + failed.join('、'), false);
+    return;
+  }
 
   S.runs = runsRes.data || [];
   S.notes = notesRes.data || [];
   S.skipDays = skipDaysRes.data || [];
   S.loadedAt = Date.now();
+  $('loadBanner').classList.add('hidden');
   renderAll();
+}
+
+/** 読み込み中・失敗の表示。失敗のときだけ「再試行」を押せる。 */
+function showLoadBanner(msg, loading) {
+  // 初回の読み込み中は各画面に「読み込み中…」があるので、帯は出さない
+  if (loading && !S.loadedAt) return;
+  $('loadBannerMsg').textContent = msg;
+  $('loadBanner').classList.toggle('loading', loading);
+  $('loadRetryBtn').classList.toggle('hidden', loading);
+  $('loadBanner').classList.remove('hidden');
 }
 
 /** Supabase の1回の取得上限を越えても、画面とバックアップを全件にする。 */
@@ -1140,6 +1159,7 @@ function bind() {
   els('.tab-btn').forEach((b) =>
     b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
+  $('loadRetryBtn').addEventListener('click', loadAll);
   $('quickAddBtn').addEventListener('click', () => openRunModal(null));
   $('addRunBtn').addEventListener('click', () => openRunModal(null));
   $('addNoteBtn').addEventListener('click', () => openNoteModal(null));

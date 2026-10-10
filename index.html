@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 
@@ -28,6 +28,11 @@
 
 <!-- ========== 本体 ========== -->
 <div id="app" class="app hidden">
+
+  <div id="loadBanner" class="load-banner hidden" role="status">
+    <span id="loadBannerMsg"></span>
+    <button id="loadRetryBtn" class="btn-ghost btn-sm" type="button">再試行</button>
+  </div>
 
   <!-- ---------- きょう ---------- -->
   <section id="tab-today" class="tab-panel">
@@ -251,7 +256,7 @@
 
 <!-- integrity で改ざんを検知する（版を上げるときは integrity も計算し直す） -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/dist/umd/supabase.js" integrity="sha384-ysv13JVP3fufiEXfjML9OdCa/rRbMJvUBOWyor82wfuK8INNZAvmbxHgKIHi+oqz" crossorigin="anonymous"></script>
-<script src="js/config.js?v=18"></script>
-<script src="js/app.js?v=18"></script>
+<script src="js/config.js?v=19"></script>
+<script src="js/app.js?v=19"></script>
 </body>
 </html>
