@@ -18,10 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+      - name: 画面とキャッシュの版を確認する
+        run: node tools/check-assets.cjs --base HEAD^
       - name: 配信するファイルだけを集める
         run: |
           mkdir _site
-          rsync -a --exclude='.git' --exclude='.github' --exclude='.claude' --exclude='CLAUDE.md' --exclude='_site' ./ _site/
+          cp index.html style.css sw.js manifest.json icon-192.png icon-512.png _site/
+          mkdir _site/js
+          cp js/app.js js/config.js _site/js/
       - uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

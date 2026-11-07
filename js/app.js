@@ -53,7 +53,7 @@ function fmtDuration(sec) {
 /** "0:29:30" / "29:30" → 秒。読めなければ null */
 function parseDuration(str) {
   if (!str) return null;
-  const parts = String(str).trim().split(':').filter((p) => p !== '');
+  const parts = String(str).trim().split(':');
   if (!parts.length || parts.some((p) => !/^\d+$/.test(p))) return null;
   const n = parts.map(Number);
   if (n.length === 3) {
@@ -192,8 +192,10 @@ async function login() {
   }
   $('loginBtn').disabled = true;
   $('loginMsg').textContent = 'ログイン中…';
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  $('loginBtn').disabled = false;
+  let data, error;
+  try { ({ data, error } = await sb.auth.signInWithPassword({ email, password })); }
+  catch (e) { error = e; }
+  finally { $('loginBtn').disabled = false; }
   if (error) {
     $('loginMsg').textContent = 'ログインできませんでした：' + error.message;
     return;
@@ -231,21 +233,21 @@ async function loadAll() {
   ].filter(Boolean);
   if (failed.length) {
     showLoadBanner('読み込みに失敗：' + failed.join('、'), false);
-    return;
+    return false;
   }
 
   S.runs = runsRes.data || [];
   S.notes = notesRes.data || [];
+  S.todayNote = S.notes.find((n) => n.id === S.todayNote?.id) || null;
   S.skipDays = skipDaysRes.data || [];
   S.loadedAt = Date.now();
   $('loadBanner').classList.add('hidden');
   renderAll();
+  return true;
 }
 
 /** 読み込み中・失敗の表示。失敗のときだけ「再試行」を押せる。 */
 function showLoadBanner(msg, loading) {
-  // 初回の読み込み中は各画面に「読み込み中…」があるので、帯は出さない
-  if (loading && !S.loadedAt) return;
   $('loadBannerMsg').textContent = msg;
   $('loadBanner').classList.toggle('loading', loading);
   $('loadRetryBtn').classList.toggle('hidden', loading);
@@ -254,18 +256,23 @@ function showLoadBanner(msg, loading) {
 
 /** Supabase の1回の取得上限を越えても、画面とバックアップを全件にする。 */
 async function fetchAll(table, orderColumn) {
-  const rows = [];
-  const pageSize = 1000;
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await sb.from(table).select('*')
-      .eq('user_id', S.user.id)
-      .order(orderColumn, { ascending: false })
-      // 同じ日付・日時の行も id で順番を固定し、ページ境界での重複・欠落を防ぐ。
-      .order('id', { ascending: false })
-      .range(from, from + pageSize - 1);
-    if (error) return { data: null, error };
-    rows.push(...(data || []));
-    if (!data || data.length < pageSize) return { data: rows, error: null };
+  const userId = S.user.id;
+  try {
+    const rows = [];
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await sb.from(table).select('*')
+        .eq('user_id', userId)
+        .order(orderColumn, { ascending: false })
+        // 同じ日付・日時の行も id で順番を固定し、ページ境界での重複・欠落を防ぐ。
+        .order('id', { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) return { data: null, error };
+      rows.push(...(data || []));
+      if (!data || data.length < pageSize) return { data: rows, error: null };
+    }
+  } catch (error) {
+    return { data: null, error };
   }
 }
 
@@ -453,8 +460,14 @@ async function markShown(n) {
   if (markShown._last === n.id) return;
   markShown._last = n.id;
   const patch = { last_shown_at: new Date().toISOString(), shown_count: (n.shown_count || 0) + 1 };
-  Object.assign(n, patch);
-  await sb.from('jog_notes').update(patch).eq('id', n.id);
+  try {
+    const { error } = await sb.from('jog_notes').update(patch).eq('id', n.id);
+    if (error) throw error;
+    Object.assign(n, patch);
+    renderNotesTab();
+  } catch {
+    if (markShown._last === n.id) markShown._last = null;
+  }
 }
 
 /* ============================================================
@@ -660,6 +673,7 @@ function renderAllRuns() {
 function renderNotesTab() {
   const tags = [...new Set(S.notes.flatMap((n) => n.tags || []))].sort();
   const unseen = S.notes.filter((n) => !n.shown_count);
+  if (S.noteFilter && (S.noteFilter === '__unseen' ? !unseen.length : !tags.includes(S.noteFilter))) S.noteFilter = null;
   $('tagChips').innerHTML =
     [`<button class="chip ${S.noteFilter ? '' : 'on'}" data-tag="">すべて</button>`]
       .concat(unseen.length
@@ -752,6 +766,7 @@ async function saveRun() {
   const validationError = validateRunMetrics(row);
   if (validationError) { toast(validationError, 4000); return; }
 
+  S.shotToken++;
   $('saveRunBtn').disabled = true;
   let error;
   if (S.editRunId) {
@@ -896,6 +911,23 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 
 function getKey() { return localStorage.getItem('jog_gemini_key') || ''; }
 
+// 長辺1600px・JPEGにして通信量を抑える。小さい画像は元より大きくしない。
+async function prepareScreenshot(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const compressed = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    return compressed && compressed.size < file.size ? compressed : file;
+  } finally { bitmap.close(); }
+}
+
 async function readScreenshot(file) {
   const key = getKey();
   if (!key) {
@@ -905,15 +937,17 @@ async function readScreenshot(file) {
   // 読み取り中にフォームを閉じて別の記録を開いたら、結果をそこへ入れない
   const token = ++S.shotToken;
   const stale = () => token !== S.shotToken;
+  const original = Object.fromEntries(els('#runModal input').map((node) => [node.id, node.value]));
   $('shotStatus').textContent = '読み取り中…（10秒ほどかかります）';
 
-  let b64;
+  let b64, image;
   try {
+    image = await prepareScreenshot(file);
     b64 = await new Promise((res, rej) => {
       const fr = new FileReader();
       fr.onload = () => res(String(fr.result).split(',')[1]);
       fr.onerror = () => rej(new Error('画像を読めませんでした'));
-      fr.readAsDataURL(file);
+      fr.readAsDataURL(image);
     });
   } catch (e) {
     if (!stale()) $('shotStatus').textContent = e.message;
@@ -934,11 +968,14 @@ async function readScreenshot(file) {
 }`;
 
   let json;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
           // APIキーをURLに含めず、履歴やログに残る経路を減らす。
@@ -948,7 +985,7 @@ async function readScreenshot(file) {
           contents: [{
             parts: [
               { text: prompt },
-              { inline_data: { mime_type: file.type || 'image/png', data: b64 } },
+              { inline_data: { mime_type: image.type || 'image/png', data: b64 } },
             ],
           }],
           generationConfig: { temperature: 0, responseMimeType: 'application/json' },
@@ -965,14 +1002,16 @@ async function readScreenshot(file) {
     json = JSON.parse(text);
     if (!json || typeof json !== 'object') throw new Error('AIが読み取れませんでした。手入力してください。');
   } catch (e) {
-    if (!stale()) $('shotStatus').textContent = '失敗：' + e.message;
+    if (!stale()) $('shotStatus').textContent = controller.signal.aborted
+      ? '30秒で読み取りを中止しました。入力は残っています。手入力するか再度お試しください。'
+      : '失敗：' + e.message;
     return;
-  }
+  } finally { clearTimeout(timeout); }
   if (stale()) return;
 
   // 読めた項目だけ埋める（元の入力は消さない）
   const set = (id, v, fmt) => {
-    if (v == null || v === '') return 0;
+    if (v == null || v === '' || $(id).value !== original[id]) return 0;
     $(id).value = fmt ? fmt(v) : v;
     return 1;
   };
@@ -1012,9 +1051,14 @@ function screenshotDate(iso) {
 // id・持ち主・作成更新日時は取り込むときに付け直すので書き出さない
 const stripMeta = ({ id, user_id, created_at, updated_at, ...rest }) => rest;
 
-const numOrNull = (v) => (v == null ? null : Number(v));
+const numOrNull = (v) => v == null ? null
+  : (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) ? Number(v) : NaN;
 
-function exportBackup() {
+async function exportBackup() {
+  if (!await loadAll()) {
+    $('backupStatus').textContent = '最新データを取得できないため書き出しを中止しました。再試行してください。';
+    return;
+  }
   const payload = {
     version: 2,
     exported_at: new Date().toISOString(),
@@ -1040,81 +1084,58 @@ async function importBackup(file) {
     return;
   }
 
-  // 中身が null などの行は読まない（そこで止まって途中までしか取り込めなくなるのを防ぐ）
-  const rowsOf = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
-  const runs = rowsOf(data?.runs);
-  const notes = rowsOf(data?.notes);
-  const skipDays = rowsOf(data?.skip_days);
-  if (!runs.length && !notes.length && !skipDays.length) {
-    $('backupStatus').textContent = '取り込めるデータが入っていません。';
+  // 保存済みの最新データを確認できないときは、重複の危険があるため送信しない。
+  if (!await loadAll()) {
+    $('backupStatus').textContent = '最新データを取得できないため取り込みを中止しました。再試行してください。';
     return;
   }
-
-  // すでにある日付＋時間の組み合わせは重複とみなして飛ばす
-  const seen = new Set(S.runs.map((r) => `${r.ran_on}|${r.duration_sec}`));
-  const candidateRuns = runs
-    .filter((r) => {
-      const key = `${r.ran_on}|${r.duration_sec ?? null}`;
-      if (!r.ran_on || seen.has(key)) return false;
-      // 同一バックアップの中で重複した行も、最初の1件だけを採用する。
+  let invalidCount = 0;
+  let duplicateCount = 0;
+  const rowsOf = (value) => Array.isArray(value) ? value : [];
+  const isRow = (r) => r && typeof r === 'object' && !Array.isArray(r);
+  const textFields = (r, fields) => fields.every((key) => r[key] == null || typeof r[key] === 'string');
+  const collect = (rows, existing, keyOf, normalize) => {
+    const seen = new Set(existing.map(keyOf));
+    const result = [];
+    for (const input of rows) {
+      const row = isRow(input) ? normalize(input) : null;
+      if (!row) { invalidCount++; continue; }
+      const key = keyOf(row);
+      if (seen.has(key)) { duplicateCount++; continue; }
       seen.add(key);
-      return true;
-    });
-  const newRuns = candidateRuns
-    .map((r) => ({
-      user_id: S.user.id,
-      ran_on: r.ran_on,
-      title: r.title ?? null,
-      duration_sec: numOrNull(r.duration_sec),
-      distance_km: numOrNull(r.distance_km),
-      avg_hr: numOrNull(r.avg_hr),
-      cadence: numOrNull(r.cadence),
-      kcal: numOrNull(r.kcal),
-      elevation_m: numOrNull(r.elevation_m),
-      feeling: numOrNull(r.feeling),
-      note: r.note ?? null,
-      source: r.source || 'import',
-    }))
-    // 1件でもDBに入らない値があると500件まとめて失敗するので、送る前に外す
-    .filter((r) => isISODate(r.ran_on) && !validateRunMetrics(r));
-
-  const existingNotes = new Set(S.notes.map((n) => n.content));
-  const newNotes = notes
-    .filter((n) => {
-      if (typeof n.content !== 'string' || !n.content || existingNotes.has(n.content)) return false;
-      // 同一バックアップの中で重複したメモも、最初の1件だけを採用する。
-      existingNotes.add(n.content);
-      return true;
-    })
-    .map((n) => ({
-      user_id: S.user.id,
-      title: n.title ?? null,
-      content: n.content,
-      source: n.source ?? null,
-      tags: Array.isArray(n.tags) ? n.tags : [],
-      favorite: !!n.favorite,
-    }));
-
-  const validSkipDays = skipDays.filter((d) => isISODate(d.skipped_on) && d.skipped_on <= todayISO() && SKIP_META[d.reason]);
-  const existingSkipDays = new Set(S.skipDays.map((d) => d.skipped_on));
-  const newSkipDays = validSkipDays
-    .filter((d) => {
-      if (existingSkipDays.has(d.skipped_on)) return false;
-      existingSkipDays.add(d.skipped_on);
-      return true;
-    })
-    .map((d) => ({
-      user_id: S.user.id,
-      skipped_on: d.skipped_on,
-      reason: d.reason,
-      note: d.note ?? null,
-    }));
-
-  const duplicateCount = (runs.length - candidateRuns.length) + (notes.length - newNotes.length) + (validSkipDays.length - newSkipDays.length);
-  const invalidCount = (candidateRuns.length - newRuns.length) + (skipDays.length - validSkipDays.length);
+      result.push(row);
+    }
+    return result;
+  };
+  const newRuns = collect(rowsOf(data?.runs), S.runs, (r) => `${r.ran_on}|${r.duration_sec ?? null}`, (r) => {
+    if (!isISODate(r.ran_on) || !textFields(r, ['title', 'note', 'source'])) return null;
+    const row = {
+      user_id: S.user.id, ran_on: r.ran_on, title: r.title ?? null,
+      duration_sec: numOrNull(r.duration_sec), distance_km: numOrNull(r.distance_km),
+      avg_hr: numOrNull(r.avg_hr), cadence: numOrNull(r.cadence), kcal: numOrNull(r.kcal),
+      elevation_m: numOrNull(r.elevation_m), feeling: numOrNull(r.feeling),
+      note: r.note ?? null, source: r.source || 'import',
+    };
+    return validateRunMetrics(row) || (row.duration_sec == null && row.distance_km == null) ? null : row;
+  });
+  const newNotes = collect(rowsOf(data?.notes), S.notes, (n) => n.content, (n) => {
+    if (typeof n.content !== 'string' || !n.content.trim() || !textFields(n, ['title', 'source']) ||
+        (n.tags != null && (!Array.isArray(n.tags) || n.tags.some((t) => typeof t !== 'string'))) ||
+        (n.favorite != null && typeof n.favorite !== 'boolean') ||
+        (n.shown_count != null && (!Number.isInteger(n.shown_count) || n.shown_count < 0 || n.shown_count > 2147483647)) ||
+        (n.last_shown_at != null && (typeof n.last_shown_at !== 'string' || !Number.isFinite(Date.parse(n.last_shown_at))))) return null;
+    return { user_id: S.user.id, title: n.title ?? null, content: n.content,
+      source: n.source ?? null, tags: n.tags || [], favorite: n.favorite ?? false,
+      shown_count: n.shown_count ?? 0, last_shown_at: n.last_shown_at ?? null };
+  });
+  const newSkipDays = collect(rowsOf(data?.skip_days), S.skipDays, (d) => d.skipped_on, (d) => {
+    if (!isISODate(d.skipped_on) || d.skipped_on > todayISO() ||
+        !Object.hasOwn(SKIP_META, d.reason) || !textFields(d, ['note'])) return null;
+    return { user_id: S.user.id, skipped_on: d.skipped_on, reason: d.reason, note: d.note ?? null };
+  });
   const skipped = duplicateCount + invalidCount;
   if (!newRuns.length && !newNotes.length && !newSkipDays.length) {
-    $('backupStatus').textContent = `新しいデータはありませんでした（重複${duplicateCount}件${invalidCount ? `、日付や数値の不備${invalidCount}件` : ''}）。`;
+    $('backupStatus').textContent = `新しいデータはありませんでした（重複${duplicateCount}件${invalidCount ? `、形式・日付・数値の不備${invalidCount}件` : ''}）。`;
     return;
   }
   if (!confirm(`記録${newRuns.length}件・メモ${newNotes.length}件・理由${newSkipDays.length}件を取り込みます。よろしいですか？`)) return;
@@ -1125,10 +1146,12 @@ async function importBackup(file) {
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
       $('backupStatus').textContent = `取り込み中… ${done}件`;
-      const { error } = await sb.from(table).insert(chunk);
+      let error;
+      try { ({ error } = await sb.from(table).insert(chunk)); }
+      catch (e) { error = e; }
       if (error) {
         $('backupStatus').textContent =
-          `${done}件まで取り込んだところで失敗しました：${error.message}`;
+          `${done}件の完了を確認後、${table === 'jog_runs' ? '記録' : table === 'jog_notes' ? 'メモ' : '理由'}の取り込みに失敗：${error.message}。同じファイルを選び直すと、保存済みを確認して残りを取り込みます。`;
         await loadAll();
         return;
       }
@@ -1138,7 +1161,7 @@ async function importBackup(file) {
 
   await loadAll();
   $('backupStatus').textContent =
-    `${done}件を取り込みました${skipped ? `（重複${duplicateCount}件${invalidCount ? `、日付や数値の不備${invalidCount}件` : ''}は対象外）` : ''}。`;
+    `${done}件を取り込みました${skipped ? `（重複${duplicateCount}件${invalidCount ? `、形式・日付・数値の不備${invalidCount}件` : ''}は対象外）` : ''}。`;
 }
 
 /* ============================================================
@@ -1150,6 +1173,26 @@ function switchTab(name) {
   els('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   if (name === 'runs') scrollChartToEnd();
   window.scrollTo(0, 0);
+}
+
+async function withBusy(action) {
+  if (withBusy.active) return;
+  withBusy.active = true;
+  const controls = els('button, input, textarea, select');
+  const disabled = controls.map((node) => node.disabled);
+  controls.forEach((node) => { node.disabled = true; });
+  try { await action(); }
+  catch { toast('通信に失敗しました。入力は残っています。再試行してください。', 5000); }
+  finally {
+    controls.forEach((node, i) => { node.disabled = disabled[i]; });
+    withBusy.active = false;
+  }
+}
+
+function closeModal(id) {
+  if (withBusy.active) return;
+  if (id === 'runModal') S.shotToken++;
+  $(id).classList.add('hidden');
 }
 
 function bind() {
@@ -1175,6 +1218,7 @@ function bind() {
 
   // 記録の行をタップして編集
   document.addEventListener('click', (e) => {
+    if (withBusy.active) return;
     const runEl = e.target.closest('[data-run]');
     if (runEl) {
       const r = S.runs.find((x) => x.id === runEl.dataset.run);
@@ -1197,21 +1241,21 @@ function bind() {
   });
 
   els('[data-close]').forEach((b) =>
-    b.addEventListener('click', () => $(b.dataset.close).classList.add('hidden')));
+    b.addEventListener('click', () => closeModal(b.dataset.close)));
   els('.modal').forEach((m) => {
     // 入力欄で文字を選びながら外までなぞったときに閉じて、入力が消えないようにする。
     // 押した場所も離した場所も背景のときだけ閉じる。
     let downOnBackdrop = false;
     m.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === m; });
-    m.addEventListener('click', (e) => { if (e.target === m && downOnBackdrop) m.classList.add('hidden'); });
+    m.addEventListener('click', (e) => { if (e.target === m && downOnBackdrop) closeModal(m.id); });
   });
 
-  $('saveRunBtn').addEventListener('click', saveRun);
-  $('deleteRunBtn').addEventListener('click', deleteRun);
-  $('saveSkipBtn').addEventListener('click', saveSkipDay);
-  $('deleteSkipBtn').addEventListener('click', deleteSkipDay);
-  $('saveNoteBtn').addEventListener('click', saveNote);
-  $('deleteNoteBtn').addEventListener('click', deleteNote);
+  $('saveRunBtn').addEventListener('click', () => withBusy(saveRun));
+  $('deleteRunBtn').addEventListener('click', () => withBusy(deleteRun));
+  $('saveSkipBtn').addEventListener('click', () => withBusy(saveSkipDay));
+  $('deleteSkipBtn').addEventListener('click', () => withBusy(deleteSkipDay));
+  $('saveNoteBtn').addEventListener('click', () => withBusy(saveNote));
+  $('deleteNoteBtn').addEventListener('click', () => withBusy(deleteNote));
 
   $('fDuration').addEventListener('input', updatePacePreview);
   $('fDistance').addEventListener('input', updatePacePreview);
@@ -1258,7 +1302,7 @@ function bind() {
     $('keyStatus').textContent = v ? '保存しました' : '消しました';
   });
 
-  $('exportBtn').addEventListener('click', exportBackup);
+  $('exportBtn').addEventListener('click', () => withBusy(exportBackup));
   $('importBtn').addEventListener('click', () => $('importFile').click());
   $('importFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -1267,7 +1311,7 @@ function bind() {
     // 取り込み中にもう一度押すと、重複の確認が間に合わず同じ記録が二重に入るので、終わるまで押せなくする
     $('importBtn').disabled = true;
     try {
-      await importBackup(file);
+      await withBusy(() => importBackup(file));
     } finally {
       $('importBtn').disabled = false;
     }
@@ -1305,7 +1349,7 @@ function onResume() {
 }
 
 bind();
-initAuth();
+initAuth().catch(() => { $('loginMsg').textContent = 'ログイン状態を取得できませんでした。再度ログインしてください。'; });
 
 // ホーム画面に追加して使えるようにする（file:// では登録できないので囲う）
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

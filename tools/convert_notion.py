@@ -7,6 +7,8 @@
 出力の JSON はアプリの「設定 > 取り込み」から読み込む。
 実データなのでリポジトリにはコミットしない（.gitignore 済み）。
 """
+from datetime import date
+import math
 import csv
 import json
 import re
@@ -22,7 +24,10 @@ def parse_date(*candidates):
             re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
         if m:
             y, mo, d = map(int, m.groups())
-            return f"{y:04d}-{mo:02d}-{d:02d}"
+            try:
+                return date(y, mo, d).isoformat()
+            except ValueError:
+                continue
     return None
 
 
@@ -30,7 +35,9 @@ def parse_duration(s):
     """'0:25:39' や '25:39' を秒に。取れなければ None"""
     if not s:
         return None
-    parts = [p for p in s.strip().split(":") if p != ""]
+    parts = s.strip().split(":")
+    if any(not re.fullmatch(r"[0-9]+", p) for p in parts):
+        return None
     try:
         nums = [int(p) for p in parts]
     except ValueError:
@@ -41,7 +48,10 @@ def parse_duration(s):
         h, m, sec = 0, nums[0], nums[1]
     else:
         return None
-    return h * 3600 + m * 60 + sec
+    total = h * 3600 + m * 60 + sec
+    if sec > 59 or (len(nums) == 3 and m > 59) or not 0 <= total <= 86400:
+        return None
+    return total
 
 
 def clean_title(name):
@@ -69,12 +79,17 @@ def main():
                 # 「ワークアウト時間(分)」から復元を試みる
                 try:
                     sec = round(float(row["ワークアウト時間(分)"]) * 60)
-                except (KeyError, ValueError, TypeError):
+                except (KeyError, ValueError, TypeError, OverflowError):
                     sec = None
 
             try:
                 km = round(float(row.get("距離(km)")), 2)
             except (TypeError, ValueError):
+                km = None
+
+            if sec is not None and not 0 <= sec <= 86400:
+                sec = None
+            if km is not None and (not math.isfinite(km) or not 0 <= km <= 200):
                 km = None
 
             if sec is None and km is None:
@@ -104,6 +119,9 @@ def main():
     # 検算
     total_km = sum(r["distance_km"] or 0 for r in out)
     total_h = sum(r["duration_sec"] or 0 for r in out) / 3600
+    if not out:
+        print("有効な記録がありません")
+        return
     print(f"期間 {out[0]['ran_on']} 〜 {out[-1]['ran_on']}")
     print(f"累計 {total_km:,.1f} km / {total_h:,.1f} 時間")
 

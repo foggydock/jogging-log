@@ -31,14 +31,28 @@ python3 tools/convert_notion.py notion_export/out_1.csv jogging_import.json
 ```
 
 できた JSON を、アプリの「設定 > バックアップ > 取り込む」から読み込む。
-同じ日付＋同じ時間の記録は重複とみなして飛ばすので、二度押しても増えない。同じバックアップ内に重複して入っていた行も、最初の1件だけを取り込む。
+同じ日付＋同じ時間の記録は重複とみなして飛ばすので、二度押しても増えない。同じバックアップ内に重複して入っていた行も、有効な最初の1件だけを取り込む。取込・書出し前に最新データを読み直し、失敗時は中止する。途中失敗後は同じファイルを選び直すと、保存済みを確認して残りを取り込む。新規のメモを復元するときは振り返り回数と最終表示日時も引き継ぐ。
 
 ※ `jogging_import.json` と `notion_export/` は実データなので `.gitignore` 済み。
 
 ## 更新するとき
 
 `index.html` のファイルURLの `?v=` と `sw.js` の `CACHE`・`SHELL` を同じ版にそろえてから push する。
-上げ忘れると、ホーム画面に追加した端末で古い画面が出続ける。
+上げ忘れると、ホーム画面に追加した端末で古い画面が出続ける。`node tools/check-assets.cjs` で版の一致を確認でき、配信時も一致とキャッシュ番号の更新を自動確認する。画面用ライブラリも事前キャッシュする（記録の取得には通信が必要）。
+
+スクショは長辺1600pxのJPEGへの圧縮を試み、元より小さい場合だけ使用する。AI通信は30秒で打ち切り、読み取り中に手直しした入力は保持する。
+
+## 開発時の確認
+
+`node tools/check-assets.cjs` と `PYTHONDONTWRITEBYTECODE=1 python3 tests/converter.py` を実行する。
+ブラウザ確認は、Playwrightを一時フォルダへインストールし、次のコマンドで実行できる（Chromeが必要）。
+
+```sh
+npm install --prefix /tmp/jog-review-browser playwright@1.56.1 --no-audit --no-fund
+PLAYWRIGHT_MODULE=/tmp/jog-review-browser/node_modules/playwright node tests/browser.cjs
+```
+
+Chromeの場所は `CHROME_PATH` で変更できる。テストは使い捨てのブラウザと偽DB・ダミー画像を使い、実際の設定ファイルを読まない。オフライン確認も画面用ライブラリをダミーに置換する。
 
 ## メモ
 
